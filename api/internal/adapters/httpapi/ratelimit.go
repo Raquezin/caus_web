@@ -21,10 +21,11 @@ type clientWindow struct {
 }
 
 type rateLimiter struct {
-	mu        sync.Mutex
-	clients   map[netip.Addr]*clientWindow
-	now       func() time.Time
-	lastSweep time.Time
+	mu            sync.Mutex
+	clients       map[netip.Addr]*clientWindow
+	now           func() time.Time
+	lastSweep     time.Time
+	earliestReset time.Time
 }
 
 func newRateLimiter(now func() time.Time) *rateLimiter {
@@ -36,17 +37,15 @@ func (l *rateLimiter) allow(addr netip.Addr) (time.Duration, bool) {
 	defer l.mu.Unlock()
 	now := l.now()
 	if now.Sub(l.lastSweep) >= rateLimitWindow {
-		l.lastSweep = now
-		for ip, window := range l.clients {
-			if !now.Before(window.reset) {
-				delete(l.clients, ip)
-			}
-		}
+		l.sweep(now)
 	}
 	window, ok := l.clients[addr]
 	if !ok {
+		if len(l.clients) >= rateLimitMaxClients && !now.Before(l.earliestReset) {
+			l.sweep(now)
+		}
 		if len(l.clients) >= rateLimitMaxClients {
-			return rateLimitWindow, false
+			return l.earliestReset.Sub(now), false
 		}
 		window = &clientWindow{reset: now.Add(rateLimitWindow)}
 		l.clients[addr] = window
@@ -60,6 +59,20 @@ func (l *rateLimiter) allow(addr netip.Addr) (time.Duration, bool) {
 		return window.reset.Sub(now), false
 	}
 	return 0, true
+}
+
+// sweep drops expired windows and records a lower bound on the next expiry,
+// so a full limiter only rescans once a slot can actually have freed up.
+func (l *rateLimiter) sweep(now time.Time) {
+	l.lastSweep = now
+	l.earliestReset = now.Add(rateLimitWindow)
+	for ip, window := range l.clients {
+		if !now.Before(window.reset) {
+			delete(l.clients, ip)
+		} else if window.reset.Before(l.earliestReset) {
+			l.earliestReset = window.reset
+		}
+	}
 }
 
 func clientIP(r *http.Request) netip.Addr {

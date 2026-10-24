@@ -412,6 +412,47 @@ func TestRateLimitBoundedClients(t *testing.T) {
 	}
 }
 
+func TestRateLimitFullCapacityFreesExpiredSlotsBeforeNextSweep(t *testing.T) {
+	start := time.Now()
+	current := start
+	limiter := newRateLimiter(func() time.Time { return current })
+	newcomer := netip.MustParseAddr("8.8.8.8")
+	if _, ok := limiter.allow(netip.MustParseAddr("9.9.9.9")); !ok {
+		t.Fatal("initial client rejected")
+	}
+
+	current = start.Add(time.Second)
+	for i := 1; i < rateLimitMaxClients; i++ {
+		addr := netip.AddrFrom4([4]byte{byte(i >> 16), byte(i >> 8), byte(i), 1})
+		if _, ok := limiter.allow(addr); !ok {
+			t.Fatalf("client %d rejected before cap", i)
+		}
+	}
+
+	current = start.Add(rateLimitWindow)
+	retry, ok := limiter.allow(newcomer)
+	if !ok {
+		t.Fatal("newcomer rejected although the first slot expired")
+	}
+	if retry != 0 {
+		t.Fatalf("retry after %v on accepted request", retry)
+	}
+
+	current = start.Add(rateLimitWindow + 500*time.Millisecond)
+	retry, ok = limiter.allow(netip.MustParseAddr("8.8.4.4"))
+	if ok {
+		t.Fatal("client accepted while every slot is active")
+	}
+	if want := 500 * time.Millisecond; retry != want {
+		t.Fatalf("retry after %v, want %v", retry, want)
+	}
+
+	current = start.Add(rateLimitWindow + time.Second)
+	if _, ok := limiter.allow(netip.MustParseAddr("8.8.4.4")); !ok {
+		t.Fatal("client rejected after earliest slots expired, before the periodic sweep")
+	}
+}
+
 func TestRateLimitRetryAfterExactCeiling(t *testing.T) {
 	start := time.Now()
 	current := start
