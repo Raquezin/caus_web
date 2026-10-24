@@ -40,10 +40,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initialize Google OAuth: %T", err)
 	}
-	auth := httpapi.NewAuth(provider, nil, httpapi.AuthConfig{
-		PublicURL: cfg.publicURL, SessionTTL: cfg.sessionTTL,
-	}, log)
-
 	poolCfg, err := pgxpool.ParseConfig(cfg.databaseURL)
 	if err != nil {
 		return fmt.Errorf("invalid DATABASE_URL")
@@ -61,6 +57,10 @@ func run() error {
 	}
 	cancel()
 
+	authService := application.NewAuth(postgres.NewAuthRepository(pool), cfg.sessionTTL, cfg.adminEmails)
+	auth := httpapi.NewAuth(provider, authService, httpapi.AuthConfig{
+		PublicURL: cfg.publicURL, SessionTTL: cfg.sessionTTL,
+	}, log)
 	people := application.NewPeople(postgres.NewPeopleRepository(pool))
 	server := &http.Server{
 		Addr:              net.JoinHostPort("127.0.0.1", fmt.Sprint(cfg.port)),
