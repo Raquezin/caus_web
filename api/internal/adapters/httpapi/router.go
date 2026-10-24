@@ -33,6 +33,7 @@ func newRouter(people PeopleService, ping func(ctx context.Context) error, log *
 		if auth[0].service != nil {
 			mux.Handle("/api/me", getOnly(http.HandlerFunc(auth[0].me)))
 			mux.Handle("/api/auth/google/callback", getOnly(http.HandlerFunc(auth[0].callback)))
+			mux.Handle("/api/auth/logout", http.HandlerFunc(auth[0].logout))
 		}
 	}
 	mux.Handle("/", http.HandlerFunc(notFound))
