@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"caus-platform/api/internal/adapters/google"
 	"caus-platform/api/internal/adapters/httpapi"
 	"caus-platform/api/internal/adapters/postgres"
 	"caus-platform/api/internal/application"
@@ -35,6 +36,14 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	provider, err := google.New(ctx, "https://accounts.google.com", cfg.googleClientID, cfg.googleClientSecret, cfg.publicURL+"/api/auth/google/callback")
+	if err != nil {
+		return fmt.Errorf("initialize Google OAuth: %T", err)
+	}
+	auth := httpapi.NewAuth(provider, nil, httpapi.AuthConfig{
+		PublicURL: cfg.publicURL, SessionTTL: cfg.sessionTTL,
+	}, log)
+
 	poolCfg, err := pgxpool.ParseConfig(cfg.databaseURL)
 	if err != nil {
 		return fmt.Errorf("invalid DATABASE_URL")
@@ -55,7 +64,7 @@ func run() error {
 	people := application.NewPeople(postgres.NewPeopleRepository(pool))
 	server := &http.Server{
 		Addr:              net.JoinHostPort("127.0.0.1", fmt.Sprint(cfg.port)),
-		Handler:           httpapi.NewRouter(people, pool.Ping, log),
+		Handler:           httpapi.NewRouter(people, pool.Ping, log, auth),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
