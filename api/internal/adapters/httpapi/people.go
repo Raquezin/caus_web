@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,6 +53,71 @@ func (h *handler) getPerson(w http.ResponseWriter, r *http.Request) {
 		FirstName: person.FirstName,
 		LastName:  person.LastName,
 	})
+}
+
+func (h *handler) listPeople(w http.ResponseWriter, r *http.Request) {
+	page, ok := parsePage(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_pagination", "invalid pagination")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), lookupTimeout)
+	defer cancel()
+	result, err := h.people.List(ctx, page)
+	if errors.Is(err, domain.ErrInvalidPagination) {
+		writeError(w, http.StatusBadRequest, "invalid_pagination", "invalid pagination")
+		return
+	}
+	if err != nil {
+		h.logError(r, "list people", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	people := make([]personResponse, 0, len(result.People))
+	for _, person := range result.People {
+		people = append(people, personResponse{
+			ID:        person.ID,
+			FirstName: person.FirstName,
+			LastName:  person.LastName,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": people,
+		"pagination": map[string]any{
+			"limit":    page.Limit,
+			"offset":   page.Offset,
+			"has_more": result.HasMore,
+		},
+	})
+}
+
+func parsePage(r *http.Request) (domain.Page, bool) {
+	page := domain.Page{Limit: domain.DefaultPageLimit}
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return domain.Page{}, false
+	}
+	if values, ok := query["limit"]; ok {
+		if len(values) != 1 {
+			return domain.Page{}, false
+		}
+		limit, err := strconv.Atoi(values[0])
+		if err != nil || limit < 1 || limit > domain.MaxPageLimit {
+			return domain.Page{}, false
+		}
+		page.Limit = limit
+	}
+	if values, ok := query["offset"]; ok {
+		if len(values) != 1 {
+			return domain.Page{}, false
+		}
+		offset, err := strconv.Atoi(values[0])
+		if err != nil || offset < 0 {
+			return domain.Page{}, false
+		}
+		page.Offset = offset
+	}
+	return page, true
 }
 
 func (h *handler) healthz(w http.ResponseWriter, r *http.Request) {

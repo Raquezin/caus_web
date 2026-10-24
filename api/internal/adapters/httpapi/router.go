@@ -14,16 +14,22 @@ import (
 
 type PeopleService interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Person, error)
+	List(ctx context.Context, page domain.Page) (domain.PeoplePage, error)
 }
 
 func NewRouter(people PeopleService, ping func(ctx context.Context) error, log *slog.Logger) http.Handler {
+	return newRouter(people, ping, log, newRateLimiter(time.Now))
+}
+
+func newRouter(people PeopleService, ping func(ctx context.Context) error, log *slog.Logger, limiter *rateLimiter) http.Handler {
 	mux := http.NewServeMux()
 	h := &handler{people: people, ping: ping, log: log}
+	mux.Handle("/api/people", getOnly(http.HandlerFunc(h.listPeople)))
 	mux.Handle("/api/people/{id}", getOnly(http.HandlerFunc(h.getPerson)))
 	mux.Handle("/api/healthz", getOnly(http.HandlerFunc(h.healthz)))
 	mux.Handle("/api/readyz", getOnly(http.HandlerFunc(h.readyz)))
 	mux.Handle("/", http.HandlerFunc(notFound))
-	return securityHeaders(accessLog(log, recoverer(mux, log)))
+	return securityHeaders(accessLog(log, recoverer(cors(rateLimit(limiter, mux)), log)))
 }
 
 func getOnly(next http.Handler) http.Handler {
