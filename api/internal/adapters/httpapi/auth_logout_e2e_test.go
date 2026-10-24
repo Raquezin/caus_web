@@ -287,3 +287,45 @@ func TestLogoutMethodsPostgresE2E(t *testing.T) {
 		})
 	}
 }
+
+func TestGoogleLoginMeLogoutE2E(t *testing.T) {
+	f := newAuthE2EFixture(t)
+	assertMeError(t, meRequest(t, f.Client, http.MethodGet, f.Server.URL+"/api/me"),
+		http.StatusUnauthorized, "unauthenticated", "unauthenticated")
+	result := f.Login(t, authTestClaims{})
+	if result.Response.StatusCode != http.StatusFound || len(result.Raw) != 43 {
+		t.Fatal("OIDC callback did not establish session")
+	}
+	account := meDatabaseAccount(t, f)
+	assertMeAccount(t, meRequest(t, f.Client, http.MethodGet, f.Server.URL+"/api/me"), account)
+	request, err := http.NewRequest(http.MethodPost, f.Server.URL+"/api/auth/logout", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Origin", f.Server.URL)
+	response, err := f.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != http.StatusNoContent || len(body) != 0 {
+		t.Fatal("logout did not return an empty 204")
+	}
+	assertLogoutCookie(t, response, false)
+	assertMeError(t, meRequest(t, f.Client, http.MethodGet, f.Server.URL+"/api/me"),
+		http.StatusUnauthorized, "unauthenticated", "unauthenticated")
+	client := *f.Client
+	client.Jar = nil
+	assertMeError(t, meRequest(t, &client, http.MethodGet, f.Server.URL+"/api/me", "caus_session="+result.Raw),
+		http.StatusUnauthorized, "unauthenticated", "unauthenticated")
+	if people, sessions := f.counts(t); people != 1 || sessions != 0 || f.OIDC.TokenRequests.Load() != 1 {
+		t.Fatal("login->me->logout flow left rows behind or made extra Google calls")
+	}
+	for _, secret := range []string{result.Raw, "ada@example.com", "verified-subject", result.Pending.Cookie.Value} {
+		if strings.Contains(f.Logs.String(), secret) {
+			t.Fatal("full auth flow leaked credentials or personal data to logs")
+		}
+	}
+	t.Log("real HTTP OIDC login -> 200 /api/me -> 204 logout -> 401 /api/me; replayed raw cookie rejected, person retained, session revoked")
+}
