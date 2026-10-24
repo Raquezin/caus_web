@@ -17,17 +17,23 @@ type PeopleService interface {
 	List(ctx context.Context, page domain.Page) (domain.PeoplePage, error)
 }
 
-func NewRouter(people PeopleService, ping func(ctx context.Context) error, log *slog.Logger) http.Handler {
-	return newRouter(people, ping, log, newRateLimiter(time.Now))
+func NewRouter(people PeopleService, ping func(ctx context.Context) error, log *slog.Logger, auth ...*Auth) http.Handler {
+	return newRouter(people, ping, log, newRateLimiter(time.Now), auth...)
 }
 
-func newRouter(people PeopleService, ping func(ctx context.Context) error, log *slog.Logger, limiter *rateLimiter) http.Handler {
+func newRouter(people PeopleService, ping func(ctx context.Context) error, log *slog.Logger, limiter *rateLimiter, auth ...*Auth) http.Handler {
 	mux := http.NewServeMux()
 	h := &handler{people: people, ping: ping, log: log}
 	mux.Handle("/api/people", getOnly(http.HandlerFunc(h.listPeople)))
 	mux.Handle("/api/people/{id}", getOnly(http.HandlerFunc(h.getPerson)))
 	mux.Handle("/api/healthz", getOnly(http.HandlerFunc(h.healthz)))
 	mux.Handle("/api/readyz", getOnly(http.HandlerFunc(h.readyz)))
+	if len(auth) > 0 && auth[0] != nil {
+		mux.Handle("/api/auth/google/login", getOnly(http.HandlerFunc(auth[0].login)))
+		if auth[0].service != nil {
+			mux.Handle("/api/auth/google/callback", getOnly(http.HandlerFunc(auth[0].callback)))
+		}
+	}
 	mux.Handle("/", http.HandlerFunc(notFound))
 	return securityHeaders(accessLog(log, recoverer(cors(rateLimit(limiter, mux)), log)))
 }
