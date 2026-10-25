@@ -10,6 +10,7 @@ import (
 var ErrUnauthenticated = errors.New("unauthenticated")
 var ErrInvalidIdentity = errors.New("invalid identity")
 var ErrIdentityConflict = errors.New("identity conflict")
+var ErrAuthUnavailable = errors.New("authentication unavailable")
 
 type Account struct {
 	ID        uuid.UUID
@@ -22,8 +23,9 @@ type Account struct {
 }
 
 type GoogleIdentity struct {
-	Subject   string
-	Email     string
-	FirstName string
-	LastName  string
+	Subject            string
+	Email              string
+	FirstName          string
+	LastName           string
+	EmailAuthoritative bool
 }

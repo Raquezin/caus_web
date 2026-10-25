@@ -54,13 +54,21 @@ func TestRequiredOAuthConfig(t *testing.T) {
 
 func TestPublicURL(t *testing.T) {
 	for input, want := range map[string]string{
-		"https://clubalgoritmiaus.es":  "https://clubalgoritmiaus.es",
-		"https://clubalgoritmiaus.es/": "https://clubalgoritmiaus.es",
-		"https://api.example.com:8443": "https://api.example.com:8443",
-		"https://localhost:4321":       "https://localhost:4321",
-		"http://localhost:8080":        "http://localhost:8080",
-		"http://localhost:4321/":       "http://localhost:4321",
-		"https://[::1]:443":            "https://[::1]:443",
+		"https://clubalgoritmiaus.es":       "https://clubalgoritmiaus.es",
+		"https://clubalgoritmiaus.es/":      "https://clubalgoritmiaus.es",
+		"https://api.example.com:8443":      "https://api.example.com:8443",
+		"https://localhost:4321":            "https://localhost:4321",
+		"http://localhost:8080":             "http://localhost:8080",
+		"http://localhost:4321/":            "http://localhost:4321",
+		"https://[::1]:443":                 "https://[::1]",
+		"https://APP.example:443/":          "https://app.example",
+		"https://App.Example:08443":         "https://app.example:8443",
+		"http://localhost:80":               "http://localhost",
+		"https://app.example:00443":         "https://app.example",
+		"https://[0:0:0:0:0:0:0:1]:443":     "https://[::1]",
+		"https://[0:0:0:0:0:0:ABCD:1]:8443": "https://[::abcd:1]:8443",
+		"https://[::ffff:192.0.2.1]":        "https://[::ffff:c000:201]",
+		"https://[::1]":                     "https://[::1]",
 	} {
 		t.Run(input, func(t *testing.T) {
 			cfg, err := loadConfig(env(map[string]string{"PUBLIC_URL": input}))

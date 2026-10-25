@@ -43,7 +43,7 @@ func authRepositoryFixture(t *testing.T) (*AuthRepository, pgx.Tx) {
 	if _, err := tx.Exec(ctx, "SET LOCAL search_path TO "+schema); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"functions.sql", "people.sql", "auth.sql"} {
+	for _, name := range []string{"functions.sql", "people.sql", "auth.sql", "admin_email_bindings.sql"} {
 		sql, err := os.ReadFile(filepath.Join(schemaDir(t), name))
 		if err != nil {
 			t.Fatal(err)
@@ -200,5 +200,36 @@ func TestAuthRepositoryErrorWrappingAndBoundHashes(t *testing.T) {
 	}
 	if err := repo.DeleteSession(ctx, hash[:]); !errors.Is(err, failure) || !bytes.Equal(db.hash, hash[:]) || db.sql != "DELETE FROM sessions WHERE token_hash = $1" {
 		t.Fatal("delete failure or bound hash lost")
+	}
+}
+
+func TestAuthRepositoryUnlinkedEmailNeverAttachesIntegration(t *testing.T) {
+	for _, role := range []string{"member", "admin"} {
+		t.Run(role, func(t *testing.T) {
+			repo, tx := authRepositoryFixture(t)
+			ctx := context.Background()
+			var id uuid.UUID
+			if err := tx.QueryRow(ctx,
+				"INSERT INTO people (first_name, last_name, email, role) VALUES ('Original', 'Person', 'ada@example.com', $1) RETURNING id",
+				role).Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			identity := domain.GoogleIdentity{Subject: "new-subject", Email: "ada@example.com", FirstName: "Ada", LastName: "Lovelace"}
+			hash := sha256.Sum256([]byte("unlinked-" + role))
+			if _, err := repo.CompleteLogin(ctx, identity, hash[:], time.Now().Add(time.Hour), false); !errors.Is(err, domain.ErrIdentityConflict) {
+				t.Fatalf("unlinked %s email attached: %v", role, err)
+			}
+			var first, email, gotRole string
+			var subject *string
+			var count int
+			if err := tx.QueryRow(ctx,
+				"SELECT first_name, email, role, google_sub, (SELECT count(*) FROM sessions) FROM people WHERE id = $1", id).
+				Scan(&first, &email, &gotRole, &subject, &count); err != nil {
+				t.Fatal(err)
+			}
+			if first != "Original" || email != "ada@example.com" || gotRole != role || subject != nil || count != 0 {
+				t.Fatal("unlinked account mutated or session created")
+			}
+		})
 	}
 }

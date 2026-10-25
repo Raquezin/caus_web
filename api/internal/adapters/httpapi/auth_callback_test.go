@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,7 +23,9 @@ type callbackProviderStub struct {
 	exchange func(context.Context, string, string, string) (domain.GoogleIdentity, error)
 }
 
-func (p callbackProviderStub) AuthorizationURL(state, nonce, verifier string) string { return "/" }
+func (p callbackProviderStub) AuthorizationURL(context.Context, string, string, string) (string, error) {
+	return "/", nil
+}
 func (p callbackProviderStub) Exchange(ctx context.Context, code, verifier, nonce string) (domain.GoogleIdentity, error) {
 	return p.exchange(ctx, code, verifier, nonce)
 }
@@ -116,6 +119,8 @@ func TestGoogleCallbackSanitizedErrors(t *testing.T) {
 		{name: "provider internal", providerErr: errors.New("private code token email client-secret"), status: 500, code: "internal_error"},
 		{name: "app identity", serviceErr: domain.ErrInvalidIdentity, status: 422, code: "invalid_identity"},
 		{name: "app conflict", serviceErr: domain.ErrIdentityConflict, status: 409, code: "identity_conflict"},
+		{name: "provider unavailable", providerErr: fmt.Errorf("wrapped: %w", domain.ErrAuthUnavailable), status: 503, code: "auth_unavailable"},
+		{name: "service unavailable", serviceErr: fmt.Errorf("wrapped: %w", domain.ErrAuthUnavailable), status: 503, code: "auth_unavailable"},
 		{name: "app internal", serviceErr: errors.New("private code token email client-secret"), status: 500, code: "internal_error"},
 	}
 	for _, tc := range cases {
@@ -167,6 +172,7 @@ func TestGoogleCallbackMethodsAndSecureCookies(t *testing.T) {
 	server.Client().CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
 		cookie, flow := callbackTestFlow(t)
+		cookie.Name = "__Host-caus_oauth"
 		request, err := http.NewRequest(method, server.URL+"/api/auth/google/callback?state="+flow.State+"&code=test", nil)
 		if err != nil {
 			t.Fatal(err)
@@ -197,10 +203,10 @@ func TestGoogleCallbackMethodsAndSecureCookies(t *testing.T) {
 			if !cookie.Secure || !cookie.HttpOnly || cookie.Domain != "" || cookie.SameSite != http.SameSiteLaxMode {
 				t.Fatal("production cookies missing security flags")
 			}
-			if cookie.Name == "caus_session" && (cookie.Path != "/" || cookie.MaxAge != 3600 || cookie.Value != raw) {
+			if cookie.Name == "__Host-caus_session" && (cookie.Path != "/" || cookie.MaxAge != 3600 || cookie.Value != raw) {
 				t.Fatal("session cookie TTL not conservatively rounded")
 			}
-			if cookie.Name == "caus_oauth" && (cookie.Path != "/api/auth/google" || cookie.MaxAge != -1 || !cookie.Expires.Before(time.Now())) {
+			if cookie.Name == "__Host-caus_oauth" && (cookie.Path != "/" || cookie.MaxAge != -1 || !cookie.Expires.Before(time.Now())) {
 				t.Fatal("secure OAuth cookie not cleared consistently")
 			}
 		}
@@ -211,5 +217,42 @@ func TestGoogleCallbackMethodsAndSecureCookies(t *testing.T) {
 	NewRouter(nil, nil, logger, loginOnly).ServeHTTP(recorder, request)
 	if recorder.Code != 404 {
 		t.Fatal("login-only router registered callback without service")
+	}
+}
+
+func TestGoogleCallbackPreservesEncodedReturnTo(t *testing.T) {
+	provider := callbackProviderStub{exchange: func(context.Context, string, string, string) (domain.GoogleIdentity, error) {
+		return domain.GoogleIdentity{Subject: "verified"}, nil
+	}}
+	service := callbackServiceStub{login: func(context.Context, domain.GoogleIdentity) (domain.Account, string, error) {
+		return domain.Account{}, "raw-token", nil
+	}}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	auth := NewAuth(provider, service, AuthConfig{PublicURL: "http://localhost:8080", SessionTTL: time.Hour}, logger)
+	server := httptest.NewServer(NewRouter(nil, nil, logger, auth))
+	defer server.Close()
+	server.Client().CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	for _, returnTo := range []string{"/discounts/100%25", "/search?q=100%25", "/encoded%3Fpart%25"} {
+		cookie, flow := callbackTestFlow(t)
+		flow.ReturnTo = returnTo
+		data, err := json.Marshal(flow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cookie.Value = base64.RawURLEncoding.EncodeToString(data)
+		request, err := http.NewRequest(http.MethodGet,
+			server.URL+"/api/auth/google/callback?state="+flow.State+"&code=test", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.AddCookie(cookie)
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != 302 || response.Header.Get("Location") != returnTo {
+			t.Fatalf("return_to %q: status %d location %q", returnTo, response.StatusCode, response.Header.Get("Location"))
+		}
 	}
 }

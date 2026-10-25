@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/mail"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -36,7 +37,27 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if !validPublicURL(cfg.publicURL) {
 		return config{}, fmt.Errorf("PUBLIC_URL must be an HTTPS origin or HTTP localhost with an explicit port")
 	}
-	cfg.publicURL = strings.TrimSuffix(cfg.publicURL, "/")
+	u, _ := url.Parse(cfg.publicURL)
+	host := strings.ToLower(u.Hostname())
+	if ip, err := netip.ParseAddr(host); err == nil {
+		if ip.Is4In6() {
+			bytes := ip.As16()
+			host = fmt.Sprintf("::ffff:%x:%x",
+				uint16(bytes[12])<<8|uint16(bytes[13]), uint16(bytes[14])<<8|uint16(bytes[15]))
+		} else {
+			host = ip.String()
+		}
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port := u.Port(); port != "" {
+		number, _ := strconv.Atoi(port)
+		if (u.Scheme != "https" || number != 443) && (u.Scheme != "http" || number != 80) {
+			host += ":" + strconv.Itoa(number)
+		}
+	}
+	cfg.publicURL = u.Scheme + "://" + host
 	cfg.googleClientID = getenv("GOOGLE_CLIENT_ID")
 	if strings.TrimSpace(cfg.googleClientID) == "" {
 		return config{}, fmt.Errorf("GOOGLE_CLIENT_ID is required")

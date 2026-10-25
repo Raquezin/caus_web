@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -23,7 +24,7 @@ const maxOAuthCookieLength = 3800
 const maxReturnToLength = 2048
 
 type OAuthProvider interface {
-	AuthorizationURL(state, nonce, verifier string) string
+	AuthorizationURL(ctx context.Context, state, nonce, verifier string) (string, error)
 	Exchange(ctx context.Context, code, verifier, nonce string) (domain.GoogleIdentity, error)
 }
 
@@ -85,15 +86,34 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_return_to", "invalid return path")
 		return
 	}
+	authorizationCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	authorizationURL, err := a.provider.AuthorizationURL(authorizationCtx, flow.State, flow.Nonce, flow.Verifier)
+	cancel()
+	if err != nil {
+		a.log.Error("authorization unavailable", "error_type", fmt.Sprintf("%T", err), "path", r.Pattern)
+		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "authentication unavailable")
+		return
+	}
 	http.SetCookie(w, a.oauthCookie(value, int(oauthFlowTTL/time.Second), time.Unix(flow.ExpiresAt, 0)))
-	http.Redirect(w, r, a.provider.AuthorizationURL(flow.State, flow.Nonce, flow.Verifier), http.StatusFound)
+	http.Redirect(w, r, authorizationURL, http.StatusFound)
+}
+
+func (a *Auth) cookieName(name string) string {
+	if a != nil && strings.HasPrefix(a.cfg.PublicURL, "https://") {
+		return "__Host-" + name
+	}
+	return name
 }
 
 func (a *Auth) oauthCookie(value string, maxAge int, expires time.Time) *http.Cookie {
+	path := "/api/auth/google"
+	if strings.HasPrefix(a.cfg.PublicURL, "https://") {
+		path = "/"
+	}
 	return &http.Cookie{
-		Name:     "caus_oauth",
+		Name:     a.cookieName("caus_oauth"),
 		Value:    value,
-		Path:     "/api/auth/google",
+		Path:     path,
 		MaxAge:   maxAge,
 		Expires:  expires,
 		HttpOnly: true,
@@ -132,25 +152,24 @@ func validOAuthRandom(value string) bool {
 }
 
 func validReturnTo(value string) bool {
-	if len(value) > maxReturnToLength {
+	if len(value) > maxReturnToLength || !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") ||
+		strings.Contains(value, "\\") || strings.ContainsFunc(value, unicode.IsControl) {
 		return false
 	}
+	u, err := url.Parse(value)
+	if err != nil || u.IsAbs() || u.Host != "" || u.User != nil || u.Opaque != "" {
+		return false
+	}
+	path := u.Path
 	for {
-		if !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") || strings.Contains(value, "\\") ||
-			strings.ContainsFunc(value, unicode.IsControl) {
+		if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.Contains(path, "\\") ||
+			strings.ContainsFunc(path, unicode.IsControl) {
 			return false
 		}
-		u, err := url.Parse(value)
-		if err != nil || u.IsAbs() || u.Host != "" || u.User != nil || u.Opaque != "" {
-			return false
-		}
-		decoded, err := url.PathUnescape(value)
-		if err != nil {
-			return false
-		}
-		if decoded == value {
+		decoded, err := url.PathUnescape(path)
+		if err != nil || decoded == path {
 			return true
 		}
-		value = decoded
+		path = decoded
 	}
 }

@@ -22,31 +22,37 @@ func NewRouter(people PeopleService, ping func(ctx context.Context) error, log *
 }
 
 func newRouter(people PeopleService, ping func(ctx context.Context) error, log *slog.Logger, limiter *rateLimiter, auth ...*Auth) http.Handler {
-	mux := http.NewServeMux()
-	h := &handler{people: people, ping: ping, log: log}
-	mux.Handle("/api/people", getOnly(http.HandlerFunc(h.listPeople)))
-	mux.Handle("/api/people/{id}", getOnly(http.HandlerFunc(h.getPerson)))
-	mux.Handle("/api/healthz", getOnly(http.HandlerFunc(h.healthz)))
-	mux.Handle("/api/readyz", getOnly(http.HandlerFunc(h.readyz)))
-	if len(auth) > 0 && auth[0] != nil {
-		mux.Handle("/api/auth/google/login", getOnly(http.HandlerFunc(auth[0].login)))
-		if auth[0].service != nil {
-			mux.Handle("/api/auth/google/callback", getOnly(http.HandlerFunc(auth[0].callback)))
-		}
+	var configured *Auth
+	if len(auth) > 0 {
+		configured = auth[0]
 	}
-	mux.Handle("/", http.HandlerFunc(notFound))
-	return securityHeaders(accessLog(log, recoverer(cors(rateLimit(limiter, mux)), log)))
+	return buildRouter(people, ping, log, configured, nil, limiter)
 }
 
-func getOnly(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
-			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
+func NewRouterWithBackend(people PeopleService, ping func(ctx context.Context) error, log *slog.Logger, auth *Auth, backend *Backend) http.Handler {
+	return buildRouter(people, ping, log, auth, backend, newRateLimiter(time.Now))
+}
+
+func buildRouter(people PeopleService, ping func(ctx context.Context) error, log *slog.Logger, auth *Auth, backend *Backend, limiter *rateLimiter) http.Handler {
+	mux := http.NewServeMux()
+	h := &handler{people: people, ping: ping, log: log}
+	mux.Handle("/api/people", getOnly(auth.requireAdmin(http.HandlerFunc(h.listPeople))))
+	mux.Handle("/api/people/{id}", getOnly(auth.requireAdmin(http.HandlerFunc(h.getPerson))))
+	mux.Handle("/api/healthz", getOnly(http.HandlerFunc(h.healthz)))
+	mux.Handle("/api/readyz", getOnly(http.HandlerFunc(h.readyz)))
+	publicOrigin := ""
+	if auth != nil {
+		publicOrigin = auth.cfg.PublicURL
+		mux.Handle("/api/auth/google/login", getOnly(http.HandlerFunc(auth.login)))
+		if auth.service != nil {
+			mux.Handle("/api/auth/google/callback", getOnly(http.HandlerFunc(auth.callback)))
 		}
-		next.ServeHTTP(w, r)
-	})
+	}
+	if backend != nil {
+		backend.registerRoutes(mux, auth)
+	}
+	mux.Handle("/", http.HandlerFunc(notFound))
+	return withRequestID(withSecurityHeaders(publicOrigin, withAccessLog(log, recoverer(cors(rateLimit(limiter, mux), publicOrigin, mux), log))))
 }
 
 func notFound(w http.ResponseWriter, r *http.Request) {
@@ -75,31 +81,6 @@ func (w *statusWriter) WriteHeader(status int) {
 		w.status = status
 		w.ResponseWriter.WriteHeader(status)
 	}
-}
-
-func accessLog(log *slog.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		sw := &statusWriter{ResponseWriter: w}
-		next.ServeHTTP(sw, r)
-		if sw.status == 0 {
-			sw.status = http.StatusOK
-		}
-		log.Info("request",
-			"method", r.Method,
-			"path", r.Pattern,
-			"status", sw.status,
-			"duration_ms", time.Since(start).Milliseconds(),
-		)
-	})
-}
-
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r)
-	})
 }
 
 func recoverer(next http.Handler, log *slog.Logger) http.Handler {

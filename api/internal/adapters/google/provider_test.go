@@ -141,10 +141,7 @@ func mockProvider(t *testing.T, tc oidcTestCase) (*Provider, string, *atomic.Int
 	}
 	t.Cleanup(server.Close)
 	ctx := oidc.ClientContext(context.Background(), server.Client())
-	provider, err := New(ctx, server.URL, "test-client", "test-secret", "http://localhost:8080/api/auth/google/callback")
-	if err != nil {
-		t.Fatal(err)
-	}
+	provider := New(ctx, server.URL, "test-client", "test-secret", "http://localhost:8080/api/auth/google/callback")
 	if provider.client.Timeout != 10*time.Second || server.Client().Timeout != 0 {
 		t.Fatal("provider must bound HTTP timeouts without mutating injected client")
 	}
@@ -159,7 +156,11 @@ func TestProviderDiscoveryAuthorizationAndExchangeE2E(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			provider, issuer, tokenRequests := mockProvider(t, oidcTestCase{tls: tls})
-			authorization, err := url.Parse(provider.AuthorizationURL("expected-state", "expected-nonce", "expected-verifier"))
+			raw, err := provider.AuthorizationURL(context.Background(), "expected-state", "expected-nonce", "expected-verifier")
+			if err != nil {
+				t.Fatal(err)
+			}
+			authorization, err := url.Parse(raw)
 			if err != nil || authorization.Scheme+"://"+authorization.Host+authorization.Path != issuer+"/authorize" {
 				t.Fatal("incorrect discovered authorization endpoint")
 			}
@@ -204,6 +205,15 @@ func TestProviderRejectsInvalidIdentity(t *testing.T) {
 		"missing email":              {mutate: func(claims map[string]any) { delete(claims, "email") }},
 		"missing subject":            {mutate: func(claims map[string]any) { delete(claims, "sub") }},
 		"missing ID token":           {missingIDToken: true},
+		"wrong authorized party":     {mutate: func(claims map[string]any) { claims["azp"] = "other-client" }},
+		"multi audience missing azp": {mutate: func(claims map[string]any) {
+			claims["aud"] = []string{"test-client", "other-client"}
+		}},
+		"multi audience wrong azp": {mutate: func(claims map[string]any) {
+			claims["aud"] = []string{"test-client", "other-client"}
+			claims["azp"] = "other-client"
+		}},
+		"non-string authorized party": {mutate: func(claims map[string]any) { claims["azp"] = 123 }},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -249,7 +259,8 @@ func TestProviderDiscoveryRejectsWrongIssuer(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"issuer": "https://other.example"})
 	}))
 	defer server.Close()
-	if _, err := New(context.Background(), server.URL, "test-client", "test-secret", "http://localhost:8080/api/auth/google/callback"); err == nil {
+	provider := New(context.Background(), server.URL, "test-client", "test-secret", "http://localhost:8080/api/auth/google/callback")
+	if _, err := provider.AuthorizationURL(context.Background(), "state", "nonce", "verifier"); err == nil {
 		t.Fatal("mismatched discovery issuer accepted")
 	}
 }

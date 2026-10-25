@@ -30,7 +30,7 @@ create table talk_speakers (
 );
 
 create constraint trigger talks_require_speaker
-  after insert on talks
+  after insert or update of id on talks
   deferrable initially deferred
   for each row execute function talks_require_speaker();
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -61,8 +62,6 @@ func (l *rateLimiter) allow(addr netip.Addr) (time.Duration, bool) {
 	return 0, true
 }
 
-// sweep drops expired windows and records a lower bound on the next expiry,
-// so a full limiter only rescans once a slot can actually have freed up.
 func (l *rateLimiter) sweep(now time.Time) {
 	l.lastSweep = now
 	l.earliestReset = now.Add(rateLimitWindow)
@@ -80,9 +79,23 @@ func clientIP(r *http.Request) netip.Addr {
 	if err != nil {
 		host = r.RemoteAddr
 	}
-	addr, err := netip.ParseAddr(host)
+	peer, err := netip.ParseAddr(host)
 	if err != nil {
 		return netip.Addr{}
+	}
+	peer = peer.Unmap()
+	if !peer.IsLoopback() {
+		return peer
+	}
+	forwarded := r.Header.Values("X-Forwarded-For")
+	if len(forwarded) == 0 {
+		return peer
+	}
+	line := forwarded[len(forwarded)-1]
+	token := strings.TrimSpace(line[strings.LastIndex(line, ",")+1:])
+	addr, err := netip.ParseAddr(token)
+	if err != nil || addr.Zone() != "" {
+		return peer
 	}
 	return addr.Unmap()
 }

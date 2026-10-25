@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -59,32 +58,34 @@ func (r *AuthRepository) completeLogin(ctx context.Context, identity domain.Goog
 		return domain.Account{}, err
 	}
 	defer tx.Rollback(ctx)
-	var id uuid.UUID
-	err = tx.QueryRow(ctx, "SELECT id FROM people WHERE google_sub = $1 FOR UPDATE", identity.Subject).Scan(&id)
+	account, err := scanAccount(tx.QueryRow(ctx,
+		"INSERT INTO people (first_name, last_name, email, google_sub) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING "+accountColumns,
+		identity.FirstName, identity.LastName, identity.Email, identity.Subject))
 	if errors.Is(err, pgx.ErrNoRows) {
-		var subject pgtype.Text
-		err = tx.QueryRow(ctx, "SELECT id, google_sub FROM people WHERE email = $1 FOR UPDATE", identity.Email).Scan(&id, &subject)
-		if err == nil && subject.Valid && subject.String != identity.Subject {
+		account, err = scanAccount(tx.QueryRow(ctx,
+			"UPDATE people SET first_name = $2, last_name = $3, email = $4 WHERE google_sub = $1 RETURNING "+accountColumns,
+			identity.Subject, identity.FirstName, identity.LastName, identity.Email))
+		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.Account{}, domain.ErrIdentityConflict
 		}
 	}
-	role := "member"
-	if promote {
-		role = "admin"
-	}
-	var account domain.Account
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		account, err = scanAccount(tx.QueryRow(ctx,
-			"INSERT INTO people (first_name, last_name, email, google_sub, role) VALUES ($1, $2, $3, $4, $5) RETURNING "+accountColumns,
-			identity.FirstName, identity.LastName, identity.Email, identity.Subject, role))
-	case err == nil:
-		account, err = scanAccount(tx.QueryRow(ctx,
-			"UPDATE people SET first_name = $2, last_name = $3, email = $4, google_sub = $5, role = CASE WHEN $6 THEN 'admin'::person_role ELSE role END WHERE id = $1 RETURNING "+accountColumns,
-			id, identity.FirstName, identity.LastName, identity.Email, identity.Subject, promote))
-	}
 	if err != nil {
 		return domain.Account{}, err
+	}
+	if promote {
+		marker, err := tx.Exec(ctx,
+			"INSERT INTO admin_email_bindings (email_hash) VALUES (sha256(convert_to($1::text, 'UTF8'))) ON CONFLICT DO NOTHING",
+			identity.Email)
+		if err != nil {
+			return domain.Account{}, err
+		}
+		if marker.RowsAffected() == 1 && account.Role != "admin" {
+			account, err = scanAccount(tx.QueryRow(ctx,
+				"UPDATE people SET role = 'admin' WHERE google_sub = $1 RETURNING "+accountColumns, identity.Subject))
+			if err != nil {
+				return domain.Account{}, err
+			}
+		}
 	}
 	if _, err := tx.Exec(ctx, "DELETE FROM sessions WHERE expires_at <= now()"); err != nil {
 		return domain.Account{}, err

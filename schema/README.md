@@ -1,6 +1,9 @@
 # CAUS BACKEND SCHEMA
 
-`schema.sql` is the source of truth. This file only explains the rules behind it.
+`schema.sql` together with the included `schema/*.sql` files is the sole final
+fresh-install definition. Initialize an empty database once, from the repo root:
+`psql -X --dbname="$DATABASE_URL" --file=schema.sql`. Do not rerun it against a
+populated database.
 
 Recurring things (talks, competitions, results) live in the DB. One-off news (Advent of Code,
 elections, chronicles) stays as Markdown in Git and is not part of this schema.
@@ -14,8 +17,8 @@ elections, chronicles) stays as Markdown in Git and is not part of this schema.
 
 ## Auth
 
-- Sign in with Google only. `google_sub` links a person to their Google account and requires an email.
-- On first sign-in, a person with no `google_sub` but the same verified email (e.g. a speaker created by an admin) is linked instead of duplicated.
+- Sign in with Google only. `google_sub` identifies the account; a verified email is never used to link an existing person (a matching email on an unlinked or differently-linked row is a sign-in conflict, not a merge).
+- `admin_email_bindings` stores only `sha256(email)` digests of `ADMIN_EMAILS` addresses already used to bootstrap admin once. The first sign-in with a configured address inserts the digest and is promoted; later sign-ins cannot grant admin again, including after account deletion. Existing admins keep their stored `role`; explicit demotion stays effective. No raw email or Google subject is retained in the pin.
 - Sessions store only `sha256(token)`; the token itself lives in the cookie.
 - Deleting an account clears `email` and `google_sub` and removes its sessions; the person row stays.
 

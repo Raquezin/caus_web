@@ -28,7 +28,7 @@ func (a *Auth) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	var cookie *http.Cookie
 	for _, candidate := range r.Cookies() {
-		if candidate.Name == "caus_oauth" {
+		if candidate.Name == a.cookieName("caus_oauth") {
 			if cookie != nil {
 				writeError(w, http.StatusBadRequest, "invalid_oauth_state", "invalid OAuth state")
 				return
@@ -85,12 +85,16 @@ func (a *Auth) callback(w http.ResponseWriter, r *http.Request) {
 
 func (a *Auth) sessionCookie(value string, maxAge int, expires time.Time) *http.Cookie {
 	return &http.Cookie{
-		Name: "caus_session", Value: value, Path: "/", MaxAge: maxAge, Expires: expires,
+		Name: a.cookieName("caus_session"), Value: value, Path: "/", MaxAge: maxAge, Expires: expires,
 		HttpOnly: true, Secure: strings.HasPrefix(a.cfg.PublicURL, "https://"), SameSite: http.SameSiteLaxMode,
 	}
 }
 
 func (a *Auth) callbackError(w http.ResponseWriter, r *http.Request, err error) {
 	a.log.Error("OAuth callback failed", "path", r.Pattern, "error_type", fmt.Sprintf("%T", err))
+	if errors.Is(err, domain.ErrAuthUnavailable) {
+		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "authentication unavailable")
+		return
+	}
 	writeError(w, http.StatusInternalServerError, "internal_error", "internal error")
 }

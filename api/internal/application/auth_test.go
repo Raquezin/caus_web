@@ -54,7 +54,36 @@ func (r *authRepositoryStub) DeleteSession(ctx context.Context, hash []byte) err
 }
 
 func testIdentity() domain.GoogleIdentity {
-	return domain.GoogleIdentity{Subject: " opaque subject ", Email: " Ada@Example.COM ", FirstName: "Ada", LastName: "Lovelace"}
+	return domain.GoogleIdentity{Subject: " opaque subject ", Email: " Ada@Example.COM ", FirstName: "Ada", LastName: "Lovelace", EmailAuthoritative: true}
+}
+
+func TestAuthAdminPromotionRequiresAuthority(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		allowlisted   bool
+		authoritative bool
+		promote       bool
+	}{
+		{name: "authoritative allowlisted", allowlisted: true, authoritative: true, promote: true},
+		{name: "nonauthoritative allowlisted", allowlisted: true, authoritative: false, promote: false},
+		{name: "authoritative other", allowlisted: false, authoritative: true, promote: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &authRepositoryStub{account: domain.Account{ID: uuid.New()}}
+			admins := []string(nil)
+			if tc.allowlisted {
+				admins = []string{"ada@example.com"}
+			}
+			identity := testIdentity()
+			identity.EmailAuthoritative = tc.authoritative
+			if _, _, err := NewAuth(repo, time.Hour, admins).Login(context.Background(), identity); err != nil {
+				t.Fatal(err)
+			}
+			if repo.promote != tc.promote {
+				t.Fatalf("promote %v, want %v", repo.promote, tc.promote)
+			}
+		})
+	}
 }
 
 func TestAuthLogin(t *testing.T) {

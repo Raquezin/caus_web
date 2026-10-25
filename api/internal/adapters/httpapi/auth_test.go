@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,8 +13,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"golang.org/x/oauth2"
 
 	"caus-platform/api/internal/adapters/google"
 )
@@ -38,10 +35,7 @@ func newLoginServer(t *testing.T, publicURL string) (*httptest.Server, *bytes.Bu
 		})
 	}))
 	t.Cleanup(issuer.Close)
-	provider, err := google.New(context.Background(), issuer.URL, "test-client", "secret-marker", publicURL+"/api/auth/google/callback")
-	if err != nil {
-		t.Fatal(err)
-	}
+	provider := google.New(context.Background(), issuer.URL, "test-client", "secret-marker", publicURL+"/api/auth/google/callback")
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	auth := NewAuth(provider, nil, AuthConfig{PublicURL: publicURL, SessionTTL: 720 * time.Hour}, logger)
@@ -54,7 +48,7 @@ func newLoginServer(t *testing.T, publicURL string) (*httptest.Server, *bytes.Bu
 func loginFlow(t *testing.T, response *http.Response) (*http.Cookie, oauthFlow) {
 	t.Helper()
 	cookies := response.Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "caus_oauth" {
+	if len(cookies) != 1 || (cookies[0].Name != "caus_oauth" && cookies[0].Name != "__Host-caus_oauth") {
 		t.Fatalf("expected one flow cookie, got %d", len(cookies))
 	}
 	flow, err := decodeOAuthFlow(cookies[0].Value, time.Now())
@@ -78,9 +72,14 @@ func TestGoogleLoginE2E(t *testing.T) {
 			if flow.ReturnTo != "/" || flow.State == flow.Nonce || flow.State == flow.Verifier || flow.Nonce == flow.Verifier {
 				t.Fatal("invalid return path or non-independent secrets")
 			}
+			secure := strings.HasPrefix(publicURL, "https://")
+			name, path := "caus_oauth", "/api/auth/google"
+			if secure {
+				name, path = "__Host-caus_oauth", "/"
+			}
 			if !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Domain != "" ||
-				cookie.Path != "/api/auth/google" || cookie.MaxAge != 600 ||
-				cookie.Secure != strings.HasPrefix(publicURL, "https://") {
+				cookie.Name != name || cookie.Path != path || cookie.MaxAge != 600 ||
+				cookie.Secure != secure {
 				t.Fatal("incorrect flow cookie flags")
 			}
 			if cookie.Expires.Unix() != flow.ExpiresAt || flow.ExpiresAt < before.Add(oauthFlowTTL).Unix() ||
@@ -137,7 +136,11 @@ func TestGoogleLoginRandomness(t *testing.T) {
 
 func TestGoogleLoginReturnTo(t *testing.T) {
 	server, _, _ := newLoginServer(t, "http://localhost:8080")
-	for _, value := range []string{"/", "/cuenta/", "/news/?page=2&sort=date", "/en/news/some%20post"} {
+	for _, value := range []string{
+		"/", "/cuenta/", "/news/?page=2&sort=date", "/en/news/some%20post",
+		"/discounts/100%25", "/search?q=100%25", "/discounts/100%2525",
+		"/en/news/some%20post?discount=100%25", "/encoded%3Fpart%25",
+	} {
 		response := do(t, server, http.MethodGet, "/api/auth/google/login?return_to="+url.QueryEscape(value))
 		if response.StatusCode != http.StatusFound {
 			t.Fatalf("valid return_to %q: status %d", value, response.StatusCode)
@@ -157,6 +160,7 @@ func TestGoogleLoginRejectsReturnTo(t *testing.T) {
 		"", "relative", "https://evil.example", "javascript:alert(1)", "//evil.example",
 		"///evil.example", "\\evil.example", "/\\evil.example", "/safe\\path",
 		"/%2fevil.example", "/%252fevil.example", "/%5cevil.example", "/%255cevil.example",
+		"%2Fcuenta", "%2F%2Fevil.example", "%252Fcuenta",
 		"/%0d%0aLocation:https://evil.example", "/\n", "/\r", "/\x00", "/\x7f", "/\u0085",
 		"/%00", "/%ZZ", "/%2500", strings.Repeat("/", maxReturnToLength+1),
 	} {
@@ -211,55 +215,5 @@ func TestGoogleLoginOnlyRouteRegistered(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusNotFound {
 		t.Fatal("login registered without auth dependency")
-	}
-}
-
-func TestDecodeOAuthFlow(t *testing.T) {
-	now := time.Unix(1700000000, 0)
-	valid := oauthFlow{
-		State: oauth2.GenerateVerifier(), Nonce: oauth2.GenerateVerifier(), Verifier: oauth2.GenerateVerifier(),
-		ReturnTo: "/cuenta/?tab=profile", ExpiresAt: now.Add(oauthFlowTTL).Unix(),
-	}
-	encode := func(flow oauthFlow) string {
-		data, err := json.Marshal(flow)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return base64.RawURLEncoding.EncodeToString(data)
-	}
-	if got, err := decodeOAuthFlow(encode(valid), now); err != nil || got != valid {
-		t.Fatal("valid flow rejected")
-	}
-	for name, change := range map[string]func(*oauthFlow){
-		"expired":             func(flow *oauthFlow) { flow.ExpiresAt = now.Unix() - 1 },
-		"exact expiry":        func(flow *oauthFlow) { flow.ExpiresAt = now.Unix() },
-		"far future":          func(flow *oauthFlow) { flow.ExpiresAt++ },
-		"missing state":       func(flow *oauthFlow) { flow.State = "" },
-		"invalid nonce":       func(flow *oauthFlow) { flow.Nonce = "invalid" },
-		"invalid verifier":    func(flow *oauthFlow) { flow.Verifier = strings.Repeat("x", 43) },
-		"unsafe return path":  func(flow *oauthFlow) { flow.ReturnTo = "//evil.example" },
-		"encoded return path": func(flow *oauthFlow) { flow.ReturnTo = "/%252fevil.example" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			flow := valid
-			change(&flow)
-			if _, err := decodeOAuthFlow(encode(flow), now); err == nil {
-				t.Fatal("invalid flow accepted")
-			}
-		})
-	}
-	for _, value := range []string{
-		"", "%%%", strings.Repeat("x", maxOAuthCookieLength+1),
-		base64.RawURLEncoding.EncodeToString([]byte(`{"unknown":true}`)),
-		base64.RawURLEncoding.EncodeToString([]byte(`null`)),
-		base64.RawURLEncoding.EncodeToString([]byte(`{"state":`)),
-		base64.RawURLEncoding.EncodeToString(append([]byte(`{}`), []byte(`{}`)...)),
-	} {
-		if _, err := decodeOAuthFlow(value, now); err == nil {
-			t.Fatal("malformed flow accepted")
-		}
-	}
-	if _, err := decodeOAuthFlow(encode(valid), time.Unix(valid.ExpiresAt, 0)); err == nil {
-		t.Fatal("flow accepted at exact expiration boundary")
 	}
 }

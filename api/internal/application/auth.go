@@ -43,7 +43,9 @@ func (a *Auth) Login(ctx context.Context, identity domain.GoogleIdentity) (domai
 	address, err := mail.ParseAddress(identity.Email)
 	if strings.TrimSpace(identity.Subject) == "" || strings.TrimSpace(identity.FirstName) == "" ||
 		strings.TrimSpace(identity.LastName) == "" || err != nil || address.Address != identity.Email ||
-		!canonicalEmail.MatchString(identity.Email) || strings.ContainsFunc(identity.Email, unicode.IsSpace) {
+		!canonicalEmail.MatchString(identity.Email) || strings.ContainsFunc(identity.Email, unicode.IsSpace) ||
+		!domain.ValidText(identity.Subject) || !domain.ValidText(identity.FirstName) ||
+		!domain.ValidText(identity.LastName) {
 		return domain.Account{}, "", domain.ErrInvalidIdentity
 	}
 	if a.ttl < time.Second || a.ttl > 8760*time.Hour {
@@ -55,7 +57,7 @@ func (a *Auth) Login(ctx context.Context, identity domain.GoogleIdentity) (domai
 	}
 	token := base64.RawURLEncoding.EncodeToString(random[:])
 	hash := sha256.Sum256([]byte(token))
-	account, err := a.repo.CompleteLogin(ctx, identity, hash[:], a.now().Add(a.ttl), a.adminEmails[identity.Email])
+	account, err := a.repo.CompleteLogin(ctx, identity, hash[:], a.now().Add(a.ttl), a.adminEmails[identity.Email] && identity.EmailAuthoritative)
 	if err != nil {
 		return domain.Account{}, "", fmt.Errorf("login: %w", err)
 	}

@@ -36,10 +36,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	provider, err := google.New(ctx, "https://accounts.google.com", cfg.googleClientID, cfg.googleClientSecret, cfg.publicURL+"/api/auth/google/callback")
-	if err != nil {
-		return fmt.Errorf("initialize Google OAuth: %T", err)
-	}
+	provider := google.New(ctx, "https://accounts.google.com", cfg.googleClientID, cfg.googleClientSecret, cfg.publicURL+"/api/auth/google/callback")
 	poolCfg, err := pgxpool.ParseConfig(cfg.databaseURL)
 	if err != nil {
 		return fmt.Errorf("invalid DATABASE_URL")
@@ -62,9 +59,10 @@ func run() error {
 		PublicURL: cfg.publicURL, SessionTTL: cfg.sessionTTL,
 	}, log)
 	people := application.NewPeople(postgres.NewPeopleRepository(pool))
+	backend := httpapi.NewBackend(application.NewBackend(postgres.NewBackendRepository(pool)), auth, log)
 	server := &http.Server{
 		Addr:              net.JoinHostPort("127.0.0.1", fmt.Sprint(cfg.port)),
-		Handler:           httpapi.NewRouter(people, pool.Ping, log, auth),
+		Handler:           httpapi.NewRouterWithBackend(people, pool.Ping, log, auth, backend),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

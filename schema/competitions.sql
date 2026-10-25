@@ -43,7 +43,7 @@ create table team_members (
 );
 
 create constraint trigger teams_require_members
-  after insert on teams
+  after insert or update of id, competition_id on teams
   deferrable initially deferred
   for each row execute function teams_require_members();
 
