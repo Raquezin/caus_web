@@ -153,7 +153,7 @@ func TestAuthRepositoryAtomicityAndUniqueConflictIntegration(t *testing.T) {
 	}
 	changed.Email = "updated@example.com"
 	updated, err := repo.CompleteLogin(ctx, changed, nextHash[:], expires, false)
-	if err != nil || updated.ID != account.ID || updated.Role != "admin" || updated.FirstName != "Updated" {
+	if err != nil || updated.ID != account.ID || updated.Role != "admin" || updated.FirstName != "Original" || updated.LastName != "Person" {
 		t.Fatalf("successful profile update: %v", err)
 	}
 	if err := tx.QueryRow(ctx, "SELECT count(*) FROM sessions WHERE token_hash = $1", oldHash[:]).Scan(&count); err != nil || count != 0 {
@@ -164,6 +164,32 @@ func TestAuthRepositoryAtomicityAndUniqueConflictIntegration(t *testing.T) {
 	}
 	if err := tx.QueryRow(ctx, "SELECT email FROM people WHERE id = $1", account.ID).Scan(&email); err != nil || email != changed.Email {
 		t.Fatal("session collision did not roll back person update")
+	}
+}
+
+func TestAuthRepositoryKeepsNamesAcrossLoginsIntegration(t *testing.T) {
+	repo, tx := authRepositoryFixture(t)
+	ctx := context.Background()
+	expires := time.Now().Add(time.Hour)
+	initial := domain.GoogleIdentity{Subject: "name-subject", Email: "ada@example.com", FirstName: "Ada", LastName: ""}
+	hash := sha256.Sum256([]byte("names-first"))
+	account, err := repo.CompleteLogin(ctx, initial, hash[:], expires, false)
+	if err != nil || account.FirstName != "Ada" || account.LastName != "" {
+		t.Fatalf("first login with empty last name: %v", err)
+	}
+	var storedLast string
+	if err := tx.QueryRow(ctx, "SELECT last_name FROM people WHERE id = $1", account.ID).Scan(&storedLast); err != nil || storedLast != "" {
+		t.Fatalf("stored last name %q: %v", storedLast, err)
+	}
+	second := domain.GoogleIdentity{Subject: "name-subject", Email: "grace@example.com", FirstName: "Grace", LastName: "Hopper"}
+	nextHash := sha256.Sum256([]byte("names-second"))
+	updated, err := repo.CompleteLogin(ctx, second, nextHash[:], expires, false)
+	if err != nil || updated.ID != account.ID || updated.Email != second.Email || updated.FirstName != "Ada" || updated.LastName != "" {
+		t.Fatalf("later login rewrote names or missed the email: %+v %v", updated, err)
+	}
+	var storedFirst string
+	if err := tx.QueryRow(ctx, "SELECT first_name, last_name FROM people WHERE id = $1", account.ID).Scan(&storedFirst, &storedLast); err != nil || storedFirst != "Ada" || storedLast != "" {
+		t.Fatalf("stored names %q %q: %v", storedFirst, storedLast, err)
 	}
 }
 
@@ -208,10 +234,15 @@ func TestAuthRepositoryUnlinkedEmailNeverAttachesIntegration(t *testing.T) {
 		t.Run(role, func(t *testing.T) {
 			repo, tx := authRepositoryFixture(t)
 			ctx := context.Background()
+			var seedSubject *string
+			if role == "admin" {
+				seed := "seed-sub"
+				seedSubject = &seed
+			}
 			var id uuid.UUID
 			if err := tx.QueryRow(ctx,
-				"INSERT INTO people (first_name, last_name, email, role) VALUES ('Original', 'Person', 'ada@example.com', $1) RETURNING id",
-				role).Scan(&id); err != nil {
+				"INSERT INTO people (first_name, last_name, email, google_sub, role) VALUES ('Original', 'Person', 'ada@example.com', $1, $2) RETURNING id",
+				seedSubject, role).Scan(&id); err != nil {
 				t.Fatal(err)
 			}
 			identity := domain.GoogleIdentity{Subject: "new-subject", Email: "ada@example.com", FirstName: "Ada", LastName: "Lovelace"}
@@ -227,7 +258,8 @@ func TestAuthRepositoryUnlinkedEmailNeverAttachesIntegration(t *testing.T) {
 				Scan(&first, &email, &gotRole, &subject, &count); err != nil {
 				t.Fatal(err)
 			}
-			if first != "Original" || email != "ada@example.com" || gotRole != role || subject != nil || count != 0 {
+			if first != "Original" || email != "ada@example.com" || gotRole != role || count != 0 ||
+				(subject == nil) != (seedSubject == nil) || (subject != nil && *subject != *seedSubject) {
 				t.Fatal("unlinked account mutated or session created")
 			}
 		})

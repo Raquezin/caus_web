@@ -28,6 +28,7 @@ type BackendRepository interface {
 	ListUsers(ctx context.Context, query string, page domain.Page) (domain.UserPage, error)
 	UpdateUserRole(ctx context.Context, id uuid.UUID, role string) (domain.User, error)
 	ExportAccount(ctx context.Context, id uuid.UUID) (domain.AccountExport, error)
+	UpdateAccount(ctx context.Context, id uuid.UUID, patch domain.AccountPatch) (domain.Account, error)
 	DeleteAccount(ctx context.Context, id uuid.UUID) error
 }
 

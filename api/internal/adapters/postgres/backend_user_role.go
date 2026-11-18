@@ -11,12 +11,28 @@ import (
 	"caus-platform/api/internal/domain"
 )
 
+func requireAnotherAdmin(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	admins, err := queryIDs(ctx, tx, "SELECT id FROM people WHERE role = 'admin' ORDER BY id FOR UPDATE")
+	if err != nil {
+		return err
+	}
+	if len(admins) == 1 && admins[0] == id {
+		return domain.ErrConflict
+	}
+	return nil
+}
+
 func (r *BackendRepository) UpdateUserRole(ctx context.Context, id uuid.UUID, role string) (domain.User, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return domain.User{}, translateBackendError(err)
 	}
 	defer tx.Rollback(ctx)
+	if role != "admin" {
+		if err := requireAnotherAdmin(ctx, tx, id); err != nil {
+			return domain.User{}, err
+		}
+	}
 	var updated pgtype.UUID
 	err = tx.QueryRow(ctx, "UPDATE people SET role = $2::text::person_role WHERE id = $1 RETURNING id",
 		pgUUID(id), role).Scan(&updated)

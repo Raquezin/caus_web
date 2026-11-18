@@ -15,6 +15,7 @@ func TestEndpointDeleteAccountRollsBackWhenCommitFails(t *testing.T) {
 	auth := NewAuthRepository(tx)
 
 	own := endpointDeleteAccountPerson(t, tx, "Ada", "Lovelace", "ada@example.com", "sub-ada", "admin")
+	endpointDeleteAccountPerson(t, tx, "Grace", "Hopper", "grace@example.com", "sub-grace", "admin")
 	session := endpointDeleteAccountSession(t, tx, own, "own-session")
 	if _, err := tx.Exec(ctx,
 		"INSERT INTO admin_email_bindings (email_hash) VALUES (sha256(convert_to('ada@example.com', 'UTF8'))), (sha256(convert_to('ada.alt@example.com', 'UTF8')))"); err != nil {

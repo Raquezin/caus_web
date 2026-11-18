@@ -8,7 +8,7 @@ import (
 )
 
 func invalidTextValues() []string {
-	return []string{"a\x00b", "a\x01b", "a\x1fb", "a\x7fb", "a\xffb"}
+	return []string{"a\x00b", "a\x01b", "a\x1fb", "a\x7fb", "a\xffb", "\uFEFF", "a\uFEFFb"}
 }
 
 func TestValidateTalkInputRejectsInvalidText(t *testing.T) {

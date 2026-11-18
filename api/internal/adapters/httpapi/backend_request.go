@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +32,15 @@ func invalidFields(fields map[string]string) error {
 	return domain.NewValidationError(fields)
 }
 
+func decodeText(field jsonField, name string, fields map[string]string) (string, bool) {
+	var value string
+	if err := json.Unmarshal(field.raw, &value); err != nil {
+		fields[name] = name + " must be a string"
+		return "", false
+	}
+	return strings.TrimSpace(value), true
+}
+
 func requiredText(field jsonField, name string, fields map[string]string) string {
 	if !field.present {
 		fields[name] = name + " is required"
@@ -40,11 +50,7 @@ func requiredText(field jsonField, name string, fields map[string]string) string
 		fields[name] = name + " must not be null"
 		return ""
 	}
-	var value string
-	if err := json.Unmarshal(field.raw, &value); err != nil {
-		fields[name] = name + " must be a string"
-		return ""
-	}
+	value, _ := decodeText(field, name, fields)
 	return value
 }
 
@@ -56,21 +62,15 @@ func strictText(field jsonField, name string, fields map[string]string) (string,
 		fields[name] = name + " must not be null"
 		return "", false
 	}
-	var value string
-	if err := json.Unmarshal(field.raw, &value); err != nil {
-		fields[name] = name + " must be a string"
-		return "", false
-	}
-	return value, true
+	return decodeText(field, name, fields)
 }
 
 func nullableText(field jsonField, name string, fields map[string]string) *string {
 	if !field.present || field.isNull() {
 		return nil
 	}
-	var value string
-	if err := json.Unmarshal(field.raw, &value); err != nil {
-		fields[name] = name + " must be a string"
+	value, ok := decodeText(field, name, fields)
+	if !ok {
 		return nil
 	}
 	return &value

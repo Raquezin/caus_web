@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -13,6 +14,8 @@ import (
 )
 
 const maxTeamSize = 32767
+
+const maxNameLength = 200
 
 func ValidatePage(page domain.Page) error {
 	if page.Limit < 1 || page.Limit > domain.MaxPageLimit || page.Offset < 0 {
@@ -32,20 +35,13 @@ func ValidateTalkFilter(filter domain.TalkFilter) error {
 
 func ValidateTalkInput(input domain.TalkInput) error {
 	fields := map[string]string{}
-	requireText(fields, "title", input.Title)
+	requireName(fields, "title", input.Title)
 	requireText(fields, "description", input.Description)
-	requireText(fields, "location", input.Location)
+	requireName(fields, "location", input.Location)
 	if input.Language != "es" && input.Language != "en" {
 		fields["language"] = "language must be es or en"
 	}
-	var start time.Time
-	if input.Date.IsZero() {
-		fields["date"] = "date is required"
-	} else if instant, err := domain.EventInstant(input.Date); err != nil {
-		fields["date"] = "date must be a valid Europe/Madrid local time"
-	} else {
-		start = instant
-	}
+	start := requireEventDate(fields, input.Date)
 	if input.Duration < 1 || input.Duration > domain.MaxTalkDurationSeconds {
 		fields["duration"] = "duration must be a positive number of seconds within the calendar range"
 	} else if !start.IsZero() {
@@ -67,12 +63,10 @@ func ValidateTalkInput(input domain.TalkInput) error {
 
 func ValidateCompetitionInput(input domain.CompetitionInput) error {
 	fields := map[string]string{}
-	requireText(fields, "name", input.Name)
+	requireName(fields, "name", input.Name)
 	requireText(fields, "description", input.Description)
-	requireText(fields, "location", input.Location)
-	if input.Date.IsZero() {
-		fields["date"] = "date is required"
-	}
+	requireName(fields, "location", input.Location)
+	requireEventDate(fields, input.Date)
 	if input.TeamSize < 1 || input.TeamSize > maxTeamSize {
 		fields["team_size"] = "team_size must be between 1 and 32767"
 	}
@@ -86,6 +80,8 @@ func ValidateTeamInput(input domain.TeamInput) error {
 			fields["name"] = "name must not be blank"
 		} else if !domain.ValidText(*input.Name) {
 			fields["name"] = "name contains invalid text"
+		} else if utf8.RuneCountInString(*input.Name) > maxNameLength {
+			fields["name"] = "name must be at most 200 characters"
 		}
 	}
 	if input.PhotoURL != nil && !validHTTPURL(*input.PhotoURL) {
@@ -107,6 +103,19 @@ func ValidateRole(role string) error {
 	return nil
 }
 
+func requireEventDate(fields map[string]string, date time.Time) time.Time {
+	if date.IsZero() {
+		fields["date"] = "date is required"
+		return time.Time{}
+	}
+	instant, err := domain.EventInstant(date)
+	if err != nil {
+		fields["date"] = "date must be a valid Europe/Madrid local time"
+		return time.Time{}
+	}
+	return instant
+}
+
 func requireText(fields map[string]string, name, value string) {
 	if strings.TrimSpace(value) == "" {
 		fields[name] = name + " is required"
@@ -114,6 +123,13 @@ func requireText(fields map[string]string, name, value string) {
 	}
 	if !domain.ValidText(value) {
 		fields[name] = name + " contains invalid text"
+	}
+}
+
+func requireName(fields map[string]string, name, value string) {
+	requireText(fields, name, value)
+	if utf8.RuneCountInString(value) > maxNameLength {
+		fields[name] = name + " must be at most 200 characters"
 	}
 }
 

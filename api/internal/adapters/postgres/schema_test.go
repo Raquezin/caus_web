@@ -83,6 +83,28 @@ func insertTalk(t *testing.T, tx pgx.Tx) uuid.UUID {
 	return id
 }
 
+func TestPeopleAllowEmptyLastNameIntegration(t *testing.T) {
+	tx := schemaFixture(t)
+	if _, err := tx.Exec(context.Background(),
+		"INSERT INTO people (first_name, last_name) VALUES ('Grace', '')"); err != nil {
+		t.Fatalf("empty last name rejected: %v", err)
+	}
+	var count int
+	if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM people WHERE last_name = ''").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("stored empty last name count %d: %v", count, err)
+	}
+}
+
+func TestPeopleRejectBlankFirstNameIntegration(t *testing.T) {
+	tx := schemaFixture(t)
+	_, err := tx.Exec(context.Background(),
+		"INSERT INTO people (first_name, last_name) VALUES ('  ', 'Hopper')")
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+		t.Fatalf("blank first name error %v, want SQLSTATE 23514", err)
+	}
+}
+
 func waitForLock(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)

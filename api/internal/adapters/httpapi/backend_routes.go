@@ -17,6 +17,7 @@ func (b *Backend) registerRoutes(mux *http.ServeMux, auth *Auth) {
 	mux.Handle("/api/competitions/{id}", getOnly(http.HandlerFunc(b.getCompetition)))
 	mux.Handle("/api/me", endpointMethods(map[string]http.Handler{
 		http.MethodGet:    auth.requireUser(http.HandlerFunc(b.me)),
+		http.MethodPatch:  userWrite(http.HandlerFunc(b.updateAccount)),
 		http.MethodDelete: userWrite(http.HandlerFunc(b.deleteAccount)),
 	}))
 	mux.Handle("/api/me/export", getOnly(auth.requireUser(http.HandlerFunc(b.exportAccount))))

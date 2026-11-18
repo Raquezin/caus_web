@@ -183,6 +183,38 @@ func assertAuthError(t *testing.T, response *http.Response, status int, code str
 	assertOAuthCleared(t, response)
 }
 
+func assertSignInRedirect(t *testing.T, response *http.Response, returnTo, code string) {
+	t.Helper()
+	if response.StatusCode != http.StatusFound {
+		t.Fatalf("sign-in rejection: status %d, wanted 302", response.StatusCode)
+	}
+	location, err := url.Parse(response.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("unparsable redirect %q: %v", response.Header.Get("Location"), err)
+	}
+	expected, err := url.Parse(returnTo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.Path != expected.Path || location.Fragment != expected.Fragment {
+		t.Fatalf("redirect %q does not keep return_to %q", location, expected)
+	}
+	params := location.Query()
+	if params.Get("auth_error") != code || len(params["auth_error"]) != 1 {
+		t.Fatalf("redirect %q missing auth_error=%q", location, code)
+	}
+	params.Del("auth_error")
+	if got, want := params.Encode(), expected.Query().Encode(); got != want {
+		t.Fatalf("redirect %q lost return_to parameters %q", location, want)
+	}
+	for _, cookie := range response.Cookies() {
+		if cookie.Name == "caus_session" && cookie.Value != "" {
+			t.Fatal("sign-in failure set a session cookie")
+		}
+	}
+	assertOAuthCleared(t, response)
+}
+
 func assertOAuthCleared(t *testing.T, response *http.Response) {
 	t.Helper()
 	for _, cookie := range response.Cookies() {

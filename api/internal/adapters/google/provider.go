@@ -3,6 +3,7 @@ package google
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -88,6 +89,10 @@ func (p *Provider) Exchange(ctx context.Context, code, verifier, nonce string) (
 	ctx = oidc.ClientContext(ctx, p.client)
 	token, err := p.config.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {
+		var retrieveError *oauth2.RetrieveError
+		if errors.As(err, &retrieveError) && retrieveError.ErrorCode == "invalid_grant" {
+			return domain.GoogleIdentity{}, domain.ErrInvalidIdentity
+		}
 		return domain.GoogleIdentity{}, fmt.Errorf("exchange authorization code: %w", err)
 	}
 	raw, ok := token.Extra("id_token").(string)

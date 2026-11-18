@@ -21,13 +21,13 @@ func validateCompetitionPatchFields(patch domain.CompetitionPatch) error {
 	}
 	fields := map[string]string{}
 	if patch.Name != nil {
-		requireText(fields, "name", *patch.Name)
+		requireName(fields, "name", *patch.Name)
 	}
 	if patch.Description != nil {
 		requireText(fields, "description", *patch.Description)
 	}
 	if patch.Location != nil {
-		requireText(fields, "location", *patch.Location)
+		requireName(fields, "location", *patch.Location)
 	}
 	if patch.Date != nil && patch.Date.IsZero() {
 		fields["date"] = "date is required"

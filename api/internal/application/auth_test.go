@@ -117,7 +117,6 @@ func TestAuthRejectsIncompleteIdentity(t *testing.T) {
 	cases := map[string]func(*domain.GoogleIdentity){
 		"subject":        func(i *domain.GoogleIdentity) { i.Subject = " \t" },
 		"first name":     func(i *domain.GoogleIdentity) { i.FirstName = "\u2003" },
-		"last name":      func(i *domain.GoogleIdentity) { i.LastName = " " },
 		"email":          func(i *domain.GoogleIdentity) { i.Email = "" },
 		"display email":  func(i *domain.GoogleIdentity) { i.Email = "Ada <ada@example.com>" },
 		"domain dot":     func(i *domain.GoogleIdentity) { i.Email = "ada@localhost" },

@@ -22,7 +22,7 @@ func TestBackendRouteMethodAllow(t *testing.T) {
 		{"/api/talks.ics", "GET, HEAD"},
 		{"/api/competitions", "GET, HEAD"},
 		{"/api/competitions/" + id, "GET, HEAD"},
-		{"/api/me", "DELETE, GET, HEAD"},
+		{"/api/me", "DELETE, GET, HEAD, PATCH"},
 		{"/api/me/export", "GET, HEAD"},
 		{"/api/auth/logout", "POST"},
 		{"/api/admin/talks", "GET, HEAD, POST"},

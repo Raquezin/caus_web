@@ -29,8 +29,10 @@ func (r *BackendRepository) UpdateTalk(ctx context.Context, id uuid.UUID, patch 
 		return domain.Talk{}, err
 	}
 	if patch.SpeakerIDs != nil {
-		if err := requireRegisteredSpeakers(ctx, tx, merged.SpeakerIDs); err != nil {
-			return domain.Talk{}, err
+		if added := addedSpeakerIDs(current.Speakers, merged.SpeakerIDs); len(added) > 0 {
+			if err := requireRegisteredSpeakers(ctx, tx, added); err != nil {
+				return domain.Talk{}, err
+			}
 		}
 	}
 	if err := writeUpdateTalkScalars(ctx, tx, id, merged); err != nil {
@@ -74,6 +76,20 @@ func updateTalkInputFrom(talk domain.Talk) domain.TalkInput {
 		Published:   talk.Published,
 		SpeakerIDs:  speakerIDs,
 	}
+}
+
+func addedSpeakerIDs(current []domain.Person, next []uuid.UUID) []uuid.UUID {
+	currentIDs := make(map[uuid.UUID]struct{}, len(current))
+	for _, speaker := range current {
+		currentIDs[speaker.ID] = struct{}{}
+	}
+	added := make([]uuid.UUID, 0, len(next))
+	for _, id := range next {
+		if _, ok := currentIDs[id]; !ok {
+			added = append(added, id)
+		}
+	}
+	return added
 }
 
 func writeUpdateTalkScalars(ctx context.Context, tx pgx.Tx, id uuid.UUID, input domain.TalkInput) error {

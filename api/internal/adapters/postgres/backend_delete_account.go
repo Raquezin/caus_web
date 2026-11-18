@@ -13,6 +13,9 @@ func (r *BackendRepository) DeleteAccount(ctx context.Context, id uuid.UUID) err
 		return translateBackendError(err)
 	}
 	defer tx.Rollback(ctx)
+	if err := requireAnotherAdmin(ctx, tx, id); err != nil {
+		return err
+	}
 
 	var personID pgtype.UUID
 	if err := tx.QueryRow(ctx,

@@ -21,6 +21,12 @@ const teamColumns = "id, competition_id, name, position, photo_url, created_at, 
 
 const userColumns = "id, first_name, last_name, email, role, created_at, updated_at"
 
+const talkSpeakersQuery = "SELECT ts.talk_id, p.id, p.first_name, p.last_name FROM talk_speakers ts " +
+	"JOIN people p ON p.id = ts.person_id WHERE ts.talk_id = ANY($1::uuid[]) ORDER BY p.last_name, p.first_name, p.id"
+
+const teamMembersQuery = "SELECT tm.team_id, p.id, p.first_name, p.last_name FROM team_members tm " +
+	"JOIN people p ON p.id = tm.person_id WHERE tm.team_id = ANY($1::uuid[]) ORDER BY p.last_name, p.first_name, p.id"
+
 func pgUUID(id uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: id, Valid: true}
 }
@@ -47,15 +53,11 @@ func readTalk(ctx context.Context, q Querier, id uuid.UUID, includeUnpublished b
 	}
 	talk.ID = talkID.Bytes
 	talk.Date = naiveTimestamp(date)
-	speakerIDs, err := queryIDs(ctx, q,
-		"SELECT person_id FROM talk_speakers WHERE talk_id = $1 ORDER BY person_id", pgUUID(id))
+	speakers, err := readPeopleByOwner(ctx, q, talkSpeakersQuery, []uuid.UUID{id})
 	if err != nil {
 		return domain.Talk{}, err
 	}
-	talk.Speakers, err = readPeople(ctx, q, speakerIDs)
-	if err != nil {
-		return domain.Talk{}, err
-	}
+	talk.Speakers = speakers[id]
 	return talk, nil
 }
 
@@ -78,28 +80,58 @@ func readCompetition(ctx context.Context, q Querier, id uuid.UUID) (domain.Compe
 }
 
 func readTeam(ctx context.Context, q Querier, id uuid.UUID) (domain.Team, error) {
-	var team domain.Team
-	var teamID, competitionID pgtype.UUID
-	err := q.QueryRow(ctx, "SELECT "+teamColumns+" FROM teams WHERE id = $1", pgUUID(id)).Scan(
-		&teamID, &competitionID, &team.Name, &team.Position, &team.PhotoURL, &team.CreatedAt, &team.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	teams, err := queryTeams(ctx, q, "SELECT "+teamColumns+" FROM teams WHERE id = $1", pgUUID(id))
+	if err != nil {
+		return domain.Team{}, err
+	}
+	if len(teams) == 0 {
 		return domain.Team{}, domain.ErrNotFound
 	}
+	return teams[0], nil
+}
+
+func queryTeams(ctx context.Context, q Querier, query string, args ...any) ([]domain.Team, error) {
+	rows, err := q.Query(ctx, query, args...)
 	if err != nil {
-		return domain.Team{}, translateBackendError(err)
+		return nil, translateBackendError(err)
 	}
-	team.ID = teamID.Bytes
-	team.CompetitionID = competitionID.Bytes
-	memberIDs, err := queryIDs(ctx, q,
-		"SELECT person_id FROM team_members WHERE team_id = $1 ORDER BY person_id", pgUUID(id))
+	teams, err := scanTeamsListRows(rows)
+	rows.Close()
 	if err != nil {
-		return domain.Team{}, err
+		return nil, err
 	}
-	team.Members, err = readPeople(ctx, q, memberIDs)
+	teamIDs := make([]uuid.UUID, len(teams))
+	for index := range teams {
+		teamIDs[index] = teams[index].ID
+	}
+	members, err := readPeopleByOwner(ctx, q, teamMembersQuery, teamIDs)
 	if err != nil {
-		return domain.Team{}, err
+		return nil, err
 	}
-	return team, nil
+	for index := range teams {
+		teams[index].Members = members[teams[index].ID]
+	}
+	return teams, nil
+}
+
+func scanTeamsListRows(rows pgx.Rows) ([]domain.Team, error) {
+	teams := make([]domain.Team, 0)
+	for rows.Next() {
+		var team domain.Team
+		var teamID, competitionID pgtype.UUID
+		err := rows.Scan(&teamID, &competitionID, &team.Name, &team.Position, &team.PhotoURL,
+			&team.CreatedAt, &team.UpdatedAt)
+		if err != nil {
+			return nil, translateBackendError(err)
+		}
+		team.ID = teamID.Bytes
+		team.CompetitionID = competitionID.Bytes
+		teams = append(teams, team)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, translateBackendError(err)
+	}
+	return teams, nil
 }
 
 func readUser(ctx context.Context, q Querier, id uuid.UUID) (domain.User, error) {
@@ -139,33 +171,33 @@ func queryIDs(ctx context.Context, q Querier, query string, args ...any) ([]uuid
 	return ids, nil
 }
 
-func readPeople(ctx context.Context, q Querier, ids []uuid.UUID) ([]domain.Person, error) {
-	people := make([]domain.Person, 0, len(ids))
-	if len(ids) == 0 {
-		return people, nil
+func readPeopleByOwner(ctx context.Context, q Querier, query string, ownerIDs []uuid.UUID) (map[uuid.UUID][]domain.Person, error) {
+	owners := make(map[uuid.UUID][]domain.Person, len(ownerIDs))
+	if len(ownerIDs) == 0 {
+		return owners, nil
 	}
-	arguments := make([]pgtype.UUID, 0, len(ids))
-	for _, id := range ids {
+	arguments := make([]pgtype.UUID, 0, len(ownerIDs))
+	for _, id := range ownerIDs {
+		owners[id] = []domain.Person{}
 		arguments = append(arguments, pgUUID(id))
 	}
-	rows, err := q.Query(ctx,
-		"SELECT id, first_name, last_name FROM people WHERE id = ANY($1::uuid[]) ORDER BY last_name, first_name, id",
-		arguments)
+	rows, err := q.Query(ctx, query, arguments)
 	if err != nil {
 		return nil, translateBackendError(err)
 	}
 	defer rows.Close()
 	for rows.Next() {
+		var ownerID pgtype.UUID
 		var person domain.Person
 		var personID pgtype.UUID
-		if err := rows.Scan(&personID, &person.FirstName, &person.LastName); err != nil {
+		if err := rows.Scan(&ownerID, &personID, &person.FirstName, &person.LastName); err != nil {
 			return nil, translateBackendError(err)
 		}
 		person.ID = personID.Bytes
-		people = append(people, person)
+		owners[ownerID.Bytes] = append(owners[ownerID.Bytes], person)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, translateBackendError(err)
 	}
-	return people, nil
+	return owners, nil
 }

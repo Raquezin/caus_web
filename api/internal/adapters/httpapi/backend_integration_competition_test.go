@@ -154,3 +154,19 @@ func TestBackendIntegrationCompetitionTeams(t *testing.T) {
 		t.Fatalf("competition delete changed people: %d rows", people)
 	}
 }
+
+func TestBackendIntegrationCompetitionRejectsYearZeroDate(t *testing.T) {
+	f := newIntegrationFixture(t)
+	competition := map[string]any{
+		"name": "Year zero", "description": "desc", "date": "0000-06-01T10:00:00", "location": "Madrid",
+	}
+	status, _, body := f.admin(http.MethodPost, "/api/admin/competitions", competition)
+	integrationExpect(t, status, body, http.StatusUnprocessableEntity, "validation_failed")
+	integrationValidationField(t, body, "date")
+
+	competitionID := f.createCompetitionRow("Normal cup", 3)
+	status, _, body = f.admin(http.MethodPatch, "/api/admin/competitions/"+competitionID.String(),
+		map[string]any{"date": "0000-06-01T10:00:00"})
+	integrationExpect(t, status, body, http.StatusUnprocessableEntity, "validation_failed")
+	integrationValidationField(t, body, "date")
+}

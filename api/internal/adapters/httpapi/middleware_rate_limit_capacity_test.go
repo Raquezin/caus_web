@@ -21,12 +21,11 @@ func TestRateLimitBoundedClients(t *testing.T) {
 			t.Fatalf("client %d rejected before cap", i)
 		}
 	}
-	retry, ok := limiter.allow(netip.MustParseAddr("8.8.8.8"))
-	if ok {
-		t.Fatal("new client accepted at cap")
+	if _, ok := limiter.allow(netip.MustParseAddr("8.8.8.8")); !ok {
+		t.Fatal("new client rejected at cap")
 	}
-	if retry < time.Second {
-		t.Fatalf("retry after %v", retry)
+	if len(limiter.clients) != rateLimitMaxClients {
+		t.Fatalf("client table holds %d entries, want %d", len(limiter.clients), rateLimitMaxClients)
 	}
 	current = current.Add(2 * time.Minute)
 	if _, ok := limiter.allow(netip.MustParseAddr("8.8.8.8")); !ok {
@@ -62,11 +61,14 @@ func TestRateLimitFullCapacityFreesExpiredSlotsBeforeNextSweep(t *testing.T) {
 
 	current = start.Add(rateLimitWindow + 500*time.Millisecond)
 	retry, ok = limiter.allow(netip.MustParseAddr("8.8.4.4"))
-	if ok {
-		t.Fatal("client accepted while every slot is active")
+	if !ok {
+		t.Fatal("client rejected while every slot is active")
 	}
-	if want := 500 * time.Millisecond; retry != want {
-		t.Fatalf("retry after %v, want %v", retry, want)
+	if retry != 0 {
+		t.Fatalf("retry after %v on accepted request", retry)
+	}
+	if len(limiter.clients) != rateLimitMaxClients {
+		t.Fatalf("client table holds %d entries, want %d", len(limiter.clients), rateLimitMaxClients)
 	}
 
 	current = start.Add(rateLimitWindow + time.Second)
@@ -83,7 +85,7 @@ func TestRateLimitRetryAfterExactCeiling(t *testing.T) {
 	windowEnd := start.Add(rateLimitWindow)
 
 	request := func() *httptest.ResponseRecorder {
-		req := sessionRequest(http.MethodGet, "/api/people/"+uuid.NewString())
+		req := sessionRequest(http.MethodPost, "/api/people/"+uuid.NewString())
 		req.RemoteAddr = "203.0.113.7:5555"
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
@@ -91,7 +93,7 @@ func TestRateLimitRetryAfterExactCeiling(t *testing.T) {
 	}
 
 	for i := 0; i < rateLimitRequests; i++ {
-		if rec := request(); rec.Code != http.StatusOK {
+		if rec := request(); rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("request %d: status %d", i, rec.Code)
 		}
 	}
@@ -107,7 +109,7 @@ func TestRateLimitRetryAfterExactCeiling(t *testing.T) {
 	}
 
 	current = windowEnd
-	if rec := request(); rec.Code != http.StatusOK {
+	if rec := request(); rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("at window end: status %d", rec.Code)
 	}
 }
@@ -118,11 +120,11 @@ func TestPreflightDoesNotConsumeRateLimit(t *testing.T) {
 	path := "/api/people/" + uuid.NewString()
 
 	for i := 0; i < rateLimitRequests; i++ {
-		req := sessionRequest(http.MethodGet, path)
+		req := sessionRequest(http.MethodPost, path)
 		req.RemoteAddr = "203.0.113.8:1"
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
+		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("request %d: status %d", i, rec.Code)
 		}
 	}
@@ -137,7 +139,7 @@ func TestPreflightDoesNotConsumeRateLimit(t *testing.T) {
 		t.Fatalf("preflight: status %d", rec.Code)
 	}
 
-	req := sessionRequest(http.MethodGet, path)
+	req := sessionRequest(http.MethodPost, path)
 	req.RemoteAddr = "203.0.113.8:1"
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

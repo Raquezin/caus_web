@@ -26,7 +26,8 @@ type oidcTestCase struct {
 	mutate           func(map[string]any)
 	invalidSignature bool
 	missingIDToken   bool
-	tokenError       bool
+	tokenStatus      int
+	tokenCode        string
 	tls              bool
 }
 
@@ -90,9 +91,9 @@ func mockProvider(t *testing.T, tc oidcTestCase) (*Provider, string, *atomic.Int
 			if clientID != "test-client" || secret != "test-secret" {
 				t.Error("incorrect OAuth client authentication")
 			}
-			if tc.tokenError {
-				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
+			if tc.tokenStatus != 0 {
+				w.WriteHeader(tc.tokenStatus)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": tc.tokenCode})
 				return
 			}
 			claims := map[string]any{
@@ -243,7 +244,7 @@ func TestProviderExchangeRejectsMissingFlowSecrets(t *testing.T) {
 }
 
 func TestProviderExchangeErrorsAndCancellation(t *testing.T) {
-	provider, _, _ := mockProvider(t, oidcTestCase{tokenError: true})
+	provider, _, _ := mockProvider(t, oidcTestCase{tokenStatus: http.StatusBadRequest, tokenCode: "invalid_grant"})
 	if _, err := provider.Exchange(context.Background(), "authorization-code", "expected-verifier", "expected-nonce"); err == nil {
 		t.Fatal("token endpoint error ignored")
 	}

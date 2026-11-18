@@ -34,6 +34,10 @@ func newRateLimiter(now func() time.Time) *rateLimiter {
 }
 
 func (l *rateLimiter) allow(addr netip.Addr) (time.Duration, bool) {
+	if addr.Is6() {
+		prefix, _ := addr.Prefix(64)
+		addr = prefix.Addr()
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -46,7 +50,10 @@ func (l *rateLimiter) allow(addr netip.Addr) (time.Duration, bool) {
 			l.sweep(now)
 		}
 		if len(l.clients) >= rateLimitMaxClients {
-			return l.earliestReset.Sub(now), false
+			for evicted := range l.clients {
+				delete(l.clients, evicted)
+				break
+			}
 		}
 		window = &clientWindow{reset: now.Add(rateLimitWindow)}
 		l.clients[addr] = window
@@ -102,7 +109,8 @@ func clientIP(r *http.Request) netip.Addr {
 
 func rateLimit(limiter *rateLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/healthz" || r.URL.Path == "/api/readyz" {
+		readOnly := r.Method == http.MethodGet || r.Method == http.MethodHead
+		if readOnly && !strings.HasPrefix(r.URL.Path, "/api/auth/") {
 			next.ServeHTTP(w, r)
 			return
 		}

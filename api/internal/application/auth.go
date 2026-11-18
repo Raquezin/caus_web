@@ -40,9 +40,11 @@ var canonicalEmail = regexp.MustCompile(`^[^[:space:]@]+@[^[:space:]@]+[.][^[:sp
 
 func (a *Auth) Login(ctx context.Context, identity domain.GoogleIdentity) (domain.Account, string, error) {
 	identity.Email = strings.ToLower(strings.TrimSpace(identity.Email))
+	identity.FirstName = strings.TrimSpace(identity.FirstName)
+	identity.LastName = strings.TrimSpace(identity.LastName)
 	address, err := mail.ParseAddress(identity.Email)
-	if strings.TrimSpace(identity.Subject) == "" || strings.TrimSpace(identity.FirstName) == "" ||
-		strings.TrimSpace(identity.LastName) == "" || err != nil || address.Address != identity.Email ||
+	if strings.TrimSpace(identity.Subject) == "" || identity.FirstName == "" ||
+		err != nil || address.Address != identity.Email ||
 		!canonicalEmail.MatchString(identity.Email) || strings.ContainsFunc(identity.Email, unicode.IsSpace) ||
 		!domain.ValidText(identity.Subject) || !domain.ValidText(identity.FirstName) ||
 		!domain.ValidText(identity.LastName) {

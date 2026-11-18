@@ -17,9 +17,8 @@ func patchedText(field jsonField, name string, fields map[string]string) *string
 		fields[name] = name + " must not be null"
 		return nil
 	}
-	var value string
-	if err := json.Unmarshal(field.raw, &value); err != nil {
-		fields[name] = name + " must be a string"
+	value, ok := decodeText(field, name, fields)
+	if !ok {
 		return nil
 	}
 	return &value
@@ -101,9 +100,8 @@ func patchedNullableText(field jsonField, name string, fields map[string]string)
 	if field.isNull() {
 		return &domain.NullableText{}
 	}
-	var value string
-	if err := json.Unmarshal(field.raw, &value); err != nil {
-		fields[name] = name + " must be a string"
+	value, ok := decodeText(field, name, fields)
+	if !ok {
 		return nil
 	}
 	return &domain.NullableText{Value: &value}

@@ -63,8 +63,8 @@ func (r *AuthRepository) completeLogin(ctx context.Context, identity domain.Goog
 		identity.FirstName, identity.LastName, identity.Email, identity.Subject))
 	if errors.Is(err, pgx.ErrNoRows) {
 		account, err = scanAccount(tx.QueryRow(ctx,
-			"UPDATE people SET first_name = $2, last_name = $3, email = $4 WHERE google_sub = $1 RETURNING "+accountColumns,
-			identity.Subject, identity.FirstName, identity.LastName, identity.Email))
+			"UPDATE people SET email = $2 WHERE google_sub = $1 RETURNING "+accountColumns,
+			identity.Subject, identity.Email))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.Account{}, domain.ErrIdentityConflict
 		}

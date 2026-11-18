@@ -118,7 +118,7 @@ func TestEndpointCallbackProviderInvalidIdentitySkipsLogin(t *testing.T) {
 	request.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
 	NewRouter(nil, nil, logger, auth).ServeHTTP(recorder, request)
-	assertAuthError(t, recorder.Result(), 401, "invalid_identity")
+	assertSignInRedirect(t, recorder.Result(), flow.ReturnTo, "invalid_identity")
 	if exchanged != 1 || logins != 0 {
 		t.Fatalf("invalid provider identity reached login: exchanged=%d logins=%d", exchanged, logins)
 	}

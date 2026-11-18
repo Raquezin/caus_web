@@ -43,7 +43,7 @@ func readAccountExport(ctx context.Context, q Querier, id uuid.UUID) (domain.Acc
 	var accountID pgtype.UUID
 	err := q.QueryRow(ctx,
 		"SELECT id, first_name, last_name, coalesce(email, ''), role, created_at, updated_at, coalesce(google_sub, '') "+
-			"FROM people WHERE id = $1 FOR UPDATE", pgUUID(id)).Scan(&accountID, &export.Account.FirstName, &export.Account.LastName,
+			"FROM people WHERE id = $1", pgUUID(id)).Scan(&accountID, &export.Account.FirstName, &export.Account.LastName,
 		&export.Account.Email, &export.Account.Role, &export.Account.CreatedAt, &export.Account.UpdatedAt, &export.GoogleSub)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.AccountExport{}, domain.ErrNotFound

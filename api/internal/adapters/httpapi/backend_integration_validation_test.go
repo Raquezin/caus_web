@@ -181,11 +181,11 @@ func TestBackendRateLimitProxiedClientBuckets(t *testing.T) {
 	f := newIntegrationFixture(t)
 	for i := 0; i < 60; i++ {
 		status, _, body := f.do(integrationRequest{
-			method:  http.MethodGet,
+			method:  http.MethodPost,
 			path:    "/api/talks",
 			headers: map[string]string{"X-Forwarded-For": "198.51.100.1"},
 		})
-		if status != http.StatusOK {
+		if status != http.StatusMethodNotAllowed {
 			t.Fatalf("request %d: status %d body %s", i+1, status, body)
 		}
 	}
@@ -198,7 +198,7 @@ func TestBackendRateLimitProxiedClientBuckets(t *testing.T) {
 		t.Fatalf("distinct proxied client: status %d body %s", status, body)
 	}
 	status, _, body = f.do(integrationRequest{
-		method:  http.MethodGet,
+		method:  http.MethodPost,
 		path:    "/api/talks",
 		headers: map[string]string{"X-Forwarded-For": "198.51.100.1"},
 	})

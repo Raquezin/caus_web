@@ -99,12 +99,12 @@ func (b *endpointExportBarrier) pauseBefore(ctx context.Context, sql string) {
 	}
 }
 
-func endpointExportWaitLocked(t *testing.T, barrier *endpointExportBarrier) {
+func endpointExportWaitPaused(t *testing.T, barrier *endpointExportBarrier) {
 	t.Helper()
 	select {
 	case <-barrier.arrived:
 	case <-time.After(30 * time.Second):
-		t.Fatal("timed out waiting for the export to lock the own account")
+		t.Fatalf("timed out waiting for the export to pause before %q", barrier.pause)
 	}
 }
 
@@ -131,7 +131,7 @@ func TestEndpointExportSnapshotIsolationIntegration(t *testing.T) {
 		export, err := NewBackendRepository(barrier).ExportAccount(ctx, own)
 		results <- endpointExportResult{export: export, err: err}
 	}()
-	endpointExportWaitLocked(t, barrier)
+	endpointExportWaitPaused(t, barrier)
 
 	if _, err := pool.Exec(ctx,
 		"UPDATE sessions SET expires_at = $2 WHERE person_id = $1", own, created.Add(10*time.Hour)); err != nil {
@@ -174,13 +174,12 @@ func TestEndpointExportSnapshotIsolationIntegration(t *testing.T) {
 	}
 }
 
-func TestEndpointExportSerializesWithDeleteAccountIntegration(t *testing.T) {
+func TestEndpointExportDoesNotBlockDeleteAccountIntegration(t *testing.T) {
 	_, tx := backendFixture(t)
 	created := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
 	own := insertExportPerson(t, tx, "Ada", "Lovelace", "owner@example.com", "owner-sub", "admin")
-	foreign := insertExportPerson(t, tx, "Grace", "Hopper", "other@example.com", "other-sub", "member")
+	insertExportPerson(t, tx, "Grace", "Hopper", "other@example.com", "other-sub", "admin")
 	insertExportSession(t, tx, own, created, "own-token")
-	insertExportSession(t, tx, foreign, created, "foreign-token")
 	pool := endpointExportDatabase(t, tx)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -192,25 +191,17 @@ func TestEndpointExportSerializesWithDeleteAccountIntegration(t *testing.T) {
 		export, err := NewBackendRepository(barrier).ExportAccount(ctx, own)
 		results <- endpointExportResult{export: export, err: err}
 	}()
-	endpointExportWaitLocked(t, barrier)
+	endpointExportWaitPaused(t, barrier)
 
-	foreignDone := make(chan error, 1)
-	go func() { foreignDone <- NewBackendRepository(pool).DeleteAccount(ctx, foreign) }()
+	deleted := make(chan error, 1)
+	go func() { deleted <- NewBackendRepository(pool).DeleteAccount(ctx, own) }()
 	select {
-	case err := <-foreignDone:
+	case err := <-deleted:
 		if err != nil {
-			t.Fatalf("deleting another account during the export: %v", err)
+			t.Fatalf("deleting the own account during the export: %v", err)
 		}
 	case <-time.After(30 * time.Second):
-		t.Fatal("deleting another account blocked on the own-row export lock")
-	}
-
-	ownDone := make(chan error, 1)
-	go func() { ownDone <- NewBackendRepository(pool).DeleteAccount(ctx, own) }()
-	select {
-	case err := <-ownDone:
-		t.Fatalf("DeleteAccount ran before the export released the own-row lock: %v", err)
-	case <-time.After(time.Second):
+		t.Fatal("deleting the own account blocked on the paused export")
 	}
 
 	barrier.open()
@@ -221,9 +212,6 @@ func TestEndpointExportSerializesWithDeleteAccountIntegration(t *testing.T) {
 	if result.export.Account.Email != "owner@example.com" || result.export.GoogleSub != "owner-sub" ||
 		len(result.export.Sessions) != 1 {
 		t.Fatalf("export did not keep the pre-delete snapshot: %+v", result.export)
-	}
-	if err := <-ownDone; err != nil {
-		t.Fatalf("delete after export: %v", err)
 	}
 	anonymized, err := NewBackendRepository(pool).ExportAccount(ctx, own)
 	if err != nil {

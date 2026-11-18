@@ -115,12 +115,12 @@ func TestGoogleCallbackSanitizedErrors(t *testing.T) {
 		status      int
 		code        string
 	}{
-		{name: "provider identity", providerErr: domain.ErrInvalidIdentity, status: 401, code: "invalid_identity"},
+		{name: "provider identity", providerErr: domain.ErrInvalidIdentity, status: 302, code: "invalid_identity"},
 		{name: "provider internal", providerErr: errors.New("private code token email client-secret"), status: 500, code: "internal_error"},
-		{name: "app identity", serviceErr: domain.ErrInvalidIdentity, status: 422, code: "invalid_identity"},
-		{name: "app conflict", serviceErr: domain.ErrIdentityConflict, status: 409, code: "identity_conflict"},
-		{name: "provider unavailable", providerErr: fmt.Errorf("wrapped: %w", domain.ErrAuthUnavailable), status: 503, code: "auth_unavailable"},
-		{name: "service unavailable", serviceErr: fmt.Errorf("wrapped: %w", domain.ErrAuthUnavailable), status: 503, code: "auth_unavailable"},
+		{name: "app identity", serviceErr: domain.ErrInvalidIdentity, status: 302, code: "invalid_identity"},
+		{name: "app conflict", serviceErr: domain.ErrIdentityConflict, status: 302, code: "identity_conflict"},
+		{name: "provider unavailable", providerErr: fmt.Errorf("wrapped: %w", domain.ErrAuthUnavailable), status: 302, code: "auth_unavailable"},
+		{name: "service unavailable", serviceErr: fmt.Errorf("wrapped: %w", domain.ErrAuthUnavailable), status: 302, code: "auth_unavailable"},
 		{name: "app internal", serviceErr: errors.New("private code token email client-secret"), status: 500, code: "internal_error"},
 	}
 	for _, tc := range cases {
@@ -148,7 +148,11 @@ func TestGoogleCallbackSanitizedErrors(t *testing.T) {
 			request.AddCookie(cookie)
 			recorder := httptest.NewRecorder()
 			NewRouter(nil, nil, logger, auth).ServeHTTP(recorder, request)
-			assertAuthError(t, recorder.Result(), tc.status, tc.code)
+			if tc.status == http.StatusFound {
+				assertSignInRedirect(t, recorder.Result(), flow.ReturnTo, tc.code)
+			} else {
+				assertAuthError(t, recorder.Result(), tc.status, tc.code)
+			}
 			if strings.Contains(logs.String(), "private") || strings.Contains(logs.String(), flow.State) || strings.Contains(logs.String(), flow.Verifier) ||
 				strings.Contains(recorder.Body.String(), "private") || (tc.status == 500 && !strings.Contains(logs.String(), "error_type")) {
 				t.Fatal("error response/logging not sanitized")

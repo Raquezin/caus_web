@@ -37,6 +37,7 @@ func TestAuthBootstrapOnceAfterDeletionIntegration(t *testing.T) {
 		t.Fatalf("marker after bootstrap: %d", markers)
 	}
 
+	insertExportPerson(t, tx, "Second", "Admin", "second@example.test", "second-sub", "admin")
 	if err := repo.DeleteAccount(ctx, original.ID); err != nil {
 		t.Fatalf("delete original admin: %v", err)
 	}
@@ -140,6 +141,7 @@ func TestAuthBootstrapOnceSameSubjectRejoinIntegration(t *testing.T) {
 	if err != nil || original.Role != "admin" {
 		t.Fatalf("bootstrap admin login: %v role %q", err, original.Role)
 	}
+	insertExportPerson(t, tx, "Second", "Admin", "second@example.test", "second-sub", "admin")
 	if err := repo.DeleteAccount(ctx, original.ID); err != nil {
 		t.Fatalf("delete original admin: %v", err)
 	}

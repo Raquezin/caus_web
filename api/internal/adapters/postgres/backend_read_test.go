@@ -130,7 +130,7 @@ func TestReadUserAndQueryIDsIntegration(t *testing.T) {
 	_, tx := backendFixture(t)
 	ctx := context.Background()
 	withEmail := insertPersonRow(t, tx, "Ada", "Lovelace")
-	if _, err := tx.Exec(ctx, "UPDATE people SET email = 'ada@example.com', role = 'admin' WHERE id = $1", withEmail); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE people SET email = 'ada@example.com', google_sub = 'sub-ada', role = 'admin' WHERE id = $1", withEmail); err != nil {
 		t.Fatal(err)
 	}
 	withoutEmail := insertPersonRow(t, tx, "Alan", "Turing")

@@ -10,28 +10,24 @@ import (
 )
 
 func TestGoogleCallbackInvalidClaimsE2E(t *testing.T) {
-	cases := map[string]struct {
-		claims authTestClaims
-		status int
-	}{
-		"nonce":       {claims: authTestClaims{Values: map[string]any{"nonce": "wrong"}}, status: 401},
-		"unverified":  {claims: authTestClaims{Values: map[string]any{"email_verified": false}}, status: 401},
-		"issuer":      {claims: authTestClaims{Values: map[string]any{"iss": "https://other.example"}}, status: 401},
-		"audience":    {claims: authTestClaims{Values: map[string]any{"aud": "other-client"}}, status: 401},
-		"wrong azp":   {claims: authTestClaims{Values: map[string]any{"azp": "other-client"}}, status: 401},
-		"multi aud":   {claims: authTestClaims{Values: map[string]any{"aud": []string{"test-client", "other-client"}}}, status: 401},
-		"signature":   {claims: authTestClaims{InvalidSignature: true}, status: 401},
-		"expired":     {claims: authTestClaims{Values: map[string]any{"exp": time.Now().Add(-time.Hour).Unix()}}, status: 401},
-		"first name":  {claims: authTestClaims{Values: map[string]any{"given_name": ""}}, status: 422},
-		"last name":   {claims: authTestClaims{Values: map[string]any{"family_name": " "}}, status: 422},
-		"email form":  {claims: authTestClaims{Values: map[string]any{"email": "Ada <ada@example.com>"}}, status: 422},
-		"schema mail": {claims: authTestClaims{Values: map[string]any{"email": "ada@localhost"}}, status: 422},
+	cases := map[string]authTestClaims{
+		"nonce":       {Values: map[string]any{"nonce": "wrong"}},
+		"unverified":  {Values: map[string]any{"email_verified": false}},
+		"issuer":      {Values: map[string]any{"iss": "https://other.example"}},
+		"audience":    {Values: map[string]any{"aud": "other-client"}},
+		"wrong azp":   {Values: map[string]any{"azp": "other-client"}},
+		"multi aud":   {Values: map[string]any{"aud": []string{"test-client", "other-client"}}},
+		"signature":   {InvalidSignature: true},
+		"expired":     {Values: map[string]any{"exp": time.Now().Add(-time.Hour).Unix()}},
+		"first name":  {Values: map[string]any{"given_name": ""}},
+		"email form":  {Values: map[string]any{"email": "Ada <ada@example.com>"}},
+		"schema mail": {Values: map[string]any{"email": "ada@localhost"}},
 	}
-	for name, tc := range cases {
+	for name, claims := range cases {
 		t.Run(name, func(t *testing.T) {
 			f := newAuthE2EFixture(t)
-			result := f.Login(t, tc.claims)
-			assertAuthError(t, result.Response, tc.status, "invalid_identity")
+			result := f.Login(t, claims)
+			assertSignInRedirect(t, result.Response, result.Pending.Flow.ReturnTo, "invalid_identity")
 			if people, sessions := f.counts(t); people != 0 || sessions != 0 || f.OIDC.TokenRequests.Load() != 1 {
 				t.Fatal("invalid verified identity mutated database or skipped real exchange")
 			}
@@ -41,9 +37,10 @@ func TestGoogleCallbackInvalidClaimsE2E(t *testing.T) {
 
 func TestGoogleCallbackRejectsFlowBeforeExchangeE2E(t *testing.T) {
 	cases := []struct {
-		name   string
-		mutate func(*pendingAuthLogin)
-		code   string
+		name     string
+		mutate   func(*pendingAuthLogin)
+		code     string
+		redirect bool
 	}{
 		{name: "wrong state", mutate: func(p *pendingAuthLogin) { p.CallbackURL += "&state=wrong" }, code: "oauth_callback_invalid"},
 		{name: "mismatch", mutate: func(p *pendingAuthLogin) { p.CallbackURL = strings.Replace(p.CallbackURL, p.Flow.State, "wrong", 1) }, code: "invalid_oauth_state"},
@@ -59,7 +56,7 @@ func TestGoogleCallbackRejectsFlowBeforeExchangeE2E(t *testing.T) {
 		}, code: "invalid_oauth_state"},
 		{name: "duplicate code", mutate: func(p *pendingAuthLogin) { p.CallbackURL += "&code=other" }, code: "oauth_callback_invalid"},
 		{name: "malformed", mutate: func(p *pendingAuthLogin) { p.CallbackURL += "&bad=%ZZ" }, code: "oauth_callback_invalid"},
-		{name: "denied", mutate: func(p *pendingAuthLogin) { replaceCallbackCode(p, "access_denied") }, code: "oauth_denied"},
+		{name: "denied", mutate: func(p *pendingAuthLogin) { replaceCallbackCode(p, "access_denied") }, code: "oauth_denied", redirect: true},
 		{name: "provider error", mutate: func(p *pendingAuthLogin) { replaceCallbackCode(p, "private-provider-detail") }, code: "oauth_callback_invalid"},
 	}
 	for _, tc := range cases {
@@ -81,7 +78,11 @@ func TestGoogleCallbackRejectsFlowBeforeExchangeE2E(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer response.Body.Close()
-			assertAuthError(t, response, 400, tc.code)
+			if tc.redirect {
+				assertSignInRedirect(t, response, pending.Flow.ReturnTo, tc.code)
+			} else {
+				assertAuthError(t, response, 400, tc.code)
+			}
 			if people, sessions := f.counts(t); people != 0 || sessions != 0 || f.OIDC.TokenRequests.Load() != 0 {
 				t.Fatal("invalid callback exchanged a code or mutated DB")
 			}
@@ -110,7 +111,7 @@ func TestGoogleCallbackCodeIsSingleUseE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	assertAuthError(t, response, 500, "internal_error")
+	assertSignInRedirect(t, response, result.Pending.Flow.ReturnTo, "invalid_identity")
 	if people, sessions := f.counts(t); people != 1 || sessions != 1 {
 		t.Fatal("replayed code created another session")
 	}
@@ -149,7 +150,7 @@ func TestGoogleCallbackKeysUnavailableE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	assertAuthError(t, response, 503, "auth_unavailable")
+	assertSignInRedirect(t, response, pending.Flow.ReturnTo, "auth_unavailable")
 	if people, sessions := f.counts(t); people != 0 || sessions != 0 {
 		t.Fatal("JWKS outage created account or session")
 	}
@@ -166,5 +167,42 @@ func TestGoogleCallbackKeysUnavailableE2E(t *testing.T) {
 	}
 	if people, sessions := f.counts(t); people != 1 || sessions != 1 {
 		t.Fatal("recovery did not create account and session")
+	}
+}
+
+func TestGoogleCallbackWithoutFamilyNameE2E(t *testing.T) {
+	f := newAuthE2EFixture(t)
+	result := f.Login(t, authTestClaims{Values: map[string]any{"family_name": nil}})
+	if result.Response.StatusCode != http.StatusFound || result.Raw == "" {
+		t.Fatalf("login without family name: status %d", result.Response.StatusCode)
+	}
+	var people, blank int
+	if err := f.Tx.QueryRow(context.Background(),
+		"SELECT count(*), count(*) FILTER (WHERE last_name = '') FROM people").Scan(&people, &blank); err != nil {
+		t.Fatal(err)
+	}
+	if people != 1 || blank != 1 {
+		t.Fatalf("people %d with empty last name %d", people, blank)
+	}
+}
+
+func TestGoogleCallbackKeepsStoredNamesE2E(t *testing.T) {
+	f := newAuthE2EFixture(t)
+	if result := f.Login(t, authTestClaims{}); result.Response.StatusCode != http.StatusFound {
+		t.Fatal("first login failed")
+	}
+	if _, err := f.Tx.Exec(context.Background(), "UPDATE people SET first_name = 'Grace'"); err != nil {
+		t.Fatal(err)
+	}
+	second := authTestClaims{Values: map[string]any{"given_name": "Other", "family_name": "Name"}}
+	if result := f.Login(t, second); result.Response.StatusCode != http.StatusFound {
+		t.Fatal("second login failed")
+	}
+	var first, last string
+	if err := f.Tx.QueryRow(context.Background(), "SELECT first_name, last_name FROM people").Scan(&first, &last); err != nil {
+		t.Fatal(err)
+	}
+	if first != "Grace" || last != "Lovelace" {
+		t.Fatalf("login overwrote stored names with %q %q", first, last)
 	}
 }

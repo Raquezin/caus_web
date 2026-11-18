@@ -59,7 +59,7 @@ func TestRateLimitLoopbackProxyPerClientBuckets(t *testing.T) {
 	path := "/api/people/" + uuid.NewString()
 	router := newTestRouter(t, &fakePeople{person: domain.Person{ID: uuid.New(), FirstName: "a", LastName: "b"}}, limiter)
 	send := func(xff string) int {
-		req := sessionRequest(http.MethodGet, path)
+		req := sessionRequest(http.MethodPost, path)
 		req.RemoteAddr = "127.0.0.1:9000"
 		if xff != "" {
 			req.Header.Set("X-Forwarded-For", xff)
@@ -69,14 +69,14 @@ func TestRateLimitLoopbackProxyPerClientBuckets(t *testing.T) {
 		return rec.Code
 	}
 	for i := 0; i < rateLimitRequests; i++ {
-		if status := send("203.0.113.7"); status != http.StatusOK {
+		if status := send("203.0.113.7"); status != http.StatusMethodNotAllowed {
 			t.Fatalf("request %d: status %d", i, status)
 		}
 	}
 	if status := send("9.9.9.9, 203.0.113.7"); status != http.StatusTooManyRequests {
 		t.Fatalf("spoofed leading value evaded bucket: status %d", status)
 	}
-	if status := send("203.0.113.9"); status != http.StatusOK {
+	if status := send("203.0.113.9"); status != http.StatusMethodNotAllowed {
 		t.Fatalf("distinct proxied client limited: status %d", status)
 	}
 }

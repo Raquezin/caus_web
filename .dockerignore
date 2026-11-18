@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+client_secret*.json
+**/client_secret*.json
+**/node_modules
+**/dist
+**/.astro
+**/test-results
+**/playwright-report
+**/logs
+**/*.log
+*.log

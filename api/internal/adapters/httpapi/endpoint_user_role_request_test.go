@@ -53,7 +53,7 @@ func TestEndpointUserRoleRejectsMalformedRequest(t *testing.T) {
 func TestEndpointUserRoleRejectsInvalidRole(t *testing.T) {
 	fixture := newEndpointUserRoleFixture(t)
 	target := "/api/admin/users/" + fixture.memberID.String()
-	for _, role := range []string{"", "owner", "ADMIN", "admin "} {
+	for _, role := range []string{"", "owner", "ADMIN"} {
 		response, body := fixture.do(t, http.MethodPatch, target, `{"role":"`+role+`"}`, "admin-session",
 			[]string{"https://example.test"})
 		if response.StatusCode != http.StatusUnprocessableEntity || endpointUserRoleCode(t, body) != "validation_failed" {
@@ -63,8 +63,16 @@ func TestEndpointUserRoleRejectsInvalidRole(t *testing.T) {
 			t.Fatalf("role %q missing field error: %s", role, body)
 		}
 	}
-	if fixture.service.calls != 4 {
+	if fixture.service.calls != 3 {
 		t.Fatalf("invalid roles reached the service %d times", fixture.service.calls)
+	}
+	response, body := fixture.do(t, http.MethodPatch, target, `{"role":"  admin\n"}`, "admin-session",
+		[]string{"https://example.test"})
+	if response.StatusCode != http.StatusOK || endpointUserRoleJSON(t, body)["role"] != "admin" {
+		t.Fatalf("padded role status %d (%s)", response.StatusCode, body)
+	}
+	if fixture.service.role != "admin" {
+		t.Fatalf("padded role reached the service as %q", fixture.service.role)
 	}
 }
 

@@ -23,16 +23,16 @@ func TestRateLimitExhaustionAndHeaders(t *testing.T) {
 
 	path := "/api/people/" + uuid.NewString()
 	for i := 0; i < rateLimitRequests; i++ {
-		req := sessionRequest(http.MethodGet, path)
+		req := sessionRequest(http.MethodPost, path)
 		req.RemoteAddr = "203.0.113.1:1234"
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
+		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("request %d: status %d", i, rec.Code)
 		}
 	}
 
-	req := sessionRequest(http.MethodGet, path)
+	req := sessionRequest(http.MethodPost, path)
 	req.RemoteAddr = "203.0.113.1:1234"
 	req.Header.Set("Origin", "https://people.test")
 	rec := httptest.NewRecorder()
@@ -64,11 +64,11 @@ func TestRateLimitExhaustionAndHeaders(t *testing.T) {
 	}
 
 	current = now.Add(2 * time.Minute)
-	req = sessionRequest(http.MethodGet, path)
+	req = sessionRequest(http.MethodPost, path)
 	req.RemoteAddr = "203.0.113.1:1234"
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("after reset: status %d", rec.Code)
 	}
 }
@@ -79,18 +79,18 @@ func TestRateLimitIPIsolationAndForgedHeaders(t *testing.T) {
 	path := "/api/people/" + uuid.NewString()
 
 	for i := 0; i < rateLimitRequests; i++ {
-		req := sessionRequest(http.MethodGet, path)
+		req := sessionRequest(http.MethodPost, path)
 		req.RemoteAddr = "198.51.100.5:9999"
 		req.Header.Set("X-Forwarded-For", "10.0.0."+strconv.Itoa(i))
 		req.Header.Set("Forwarded", "for=192.0.2."+strconv.Itoa(i))
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
+		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("request %d: status %d", i, rec.Code)
 		}
 	}
 
-	req := sessionRequest(http.MethodGet, path)
+	req := sessionRequest(http.MethodPost, path)
 	req.RemoteAddr = "198.51.100.5:9999"
 	req.Header.Set("X-Forwarded-For", "10.9.9.9")
 	rec := httptest.NewRecorder()
@@ -99,11 +99,11 @@ func TestRateLimitIPIsolationAndForgedHeaders(t *testing.T) {
 		t.Fatalf("forged header evaded limit: status %d", rec.Code)
 	}
 
-	req = sessionRequest(http.MethodGet, path)
+	req = sessionRequest(http.MethodPost, path)
 	req.RemoteAddr = "198.51.100.6:9999"
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("different IP limited: status %d", rec.Code)
 	}
 }
@@ -128,7 +128,7 @@ func TestRateLimitUnknownRoutesLimited(t *testing.T) {
 	limiter := newRateLimiter(time.Now)
 	router := newTestRouter(t, &fakePeople{}, limiter)
 	for i := 0; i < rateLimitRequests; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/nope", nil)
+		req := httptest.NewRequest(http.MethodPost, "/nope", nil)
 		req.RemoteAddr = "192.0.2.2:1"
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
@@ -136,7 +136,7 @@ func TestRateLimitUnknownRoutesLimited(t *testing.T) {
 			t.Fatalf("request %d: status %d", i, rec.Code)
 		}
 	}
-	req := httptest.NewRequest(http.MethodGet, "/nope", nil)
+	req := httptest.NewRequest(http.MethodPost, "/nope", nil)
 	req.RemoteAddr = "192.0.2.2:1"
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -173,7 +173,7 @@ func TestRateLimitConcurrentAccess(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			for j := 0; j < 20; j++ {
-				req := sessionRequest(http.MethodGet, path)
+				req := sessionRequest(http.MethodPost, path)
 				req.RemoteAddr = "10.0.0." + strconv.Itoa(n) + ":1"
 				rec := httptest.NewRecorder()
 				router.ServeHTTP(rec, req)

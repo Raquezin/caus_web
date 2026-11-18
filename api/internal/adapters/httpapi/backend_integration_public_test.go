@@ -112,7 +112,7 @@ func TestBackendIntegrationPublicRequests(t *testing.T) {
 		{http.MethodDelete, "/api/talks.ics", "GET, HEAD"},
 		{http.MethodPost, "/api/competitions", "GET, HEAD"},
 		{http.MethodPatch, "/api/competitions/" + competitionID.String(), "GET, HEAD"},
-		{http.MethodPost, "/api/me", "DELETE, GET, HEAD"},
+		{http.MethodPost, "/api/me", "DELETE, GET, HEAD, PATCH"},
 		{http.MethodDelete, "/api/auth/logout", "POST"},
 	}
 	for _, testCase := range unsupported {

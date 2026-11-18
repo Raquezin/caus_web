@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Self-contained HTTP API reference for the caus platform backend.">
+  <title>caus API reference</title>
+  <link rel="stylesheet" href="api.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Reference navigation">
+    <div class="sidebar-head">
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span><span>caus API</span></a>
+      <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="sidebar-body">Browse</button>
+    </div>
+    <div class="sidebar-body" id="sidebar-body">
+      <div class="field"><label for="search">Search endpoints</label><input id="search" type="search" placeholder="Method, path, or description" autocomplete="off"></div>
+      <div class="filter-row">
+        <div class="field"><label for="category-filter">Category</label>
+          <select id="category-filter">
+            <option value="all">All categories</option>
+            <option value="Health">Health</option>
+            <option value="People">People</option>
+            <option value="Talks">Talks</option>
+            <option value="Competitions">Competitions</option>
+            <option value="Auth">Auth</option>
+            <option value="Account">Account</option>
+            <option value="Admin Talks">Admin Talks</option>
+            <option value="Admin Competitions">Admin Competitions</option>
+            <option value="Admin Teams">Admin Teams</option>
+            <option value="Admin Users">Admin Users</option>
+          </select>
+        </div>
+        <div class="field"><label for="access-filter">Access</label>
+          <select id="access-filter">
+            <option value="all">All access</option>
+            <option value="public">Public</option>
+            <option value="user">Signed in</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </div>
+      <p class="result-count" id="result-count" aria-live="polite">33 endpoints</p>
+      <nav class="nav" aria-label="Documentation sections">
+        <p class="nav-heading">Guides</p>
+        <ul class="nav-links">
+          <li><a class="nav-jump" href="#endpoints">Endpoints</a></li>
+          <li><a href="#quickstart">Quick start</a></li>
+          <li><a href="#authentication">Authentication and OAuth</a></li>
+          <li><a href="#conventions">Conventions</a></li>
+          <li><a href="#models">Models</a></li>
+          <li><a href="#requests">Requests</a></li>
+          <li><a href="#errors">Errors</a></li>
+          <li><a href="#cors">CORS</a></li>
+          <li><a href="#rate-limits">Rate limits</a></li>
+          <li><a href="#response-headers">Response headers</a></li>
+          <li><a href="#configuration">Configuration</a></li>
+        </ul>
+        <p class="nav-heading">Endpoints <span id="nav-count">33</span></p>
+        <div id="endpoint-nav" class="endpoint-nav"></div>
+      </nav>
+    </div>
+  </aside>
+  <main id="main" class="main">
+    <noscript>
+      <div class="noscript">
+        <strong>JavaScript is required for the endpoint reference.</strong>
+        <p>The guide sections are readable without JavaScript, but endpoint cards, filters, model samples and copy buttons are rendered by <code>api.js</code>. Enable JavaScript, or inspect <code>api-data.js</code> and <code>api-data2.js</code> directly.</p>
+      </div>
+    </noscript>
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <p class="eyebrow">Backend API reference</p>
+      <h1 id="hero-title">caus API</h1>
+      <p class="lede">A compact, offline reference for the caus platform HTTP API: people, talks, competitions, teams, accounts and Google-backed administration.</p>
+      <ul class="hero-stats">
+        <li><strong id="endpoint-count">33</strong><span>documented endpoints</span></li>
+        <li><strong>HEAD</strong><span>accepted on every GET</span></li>
+        <li><strong>1</strong><span>browser session cookie</span></li>
+      </ul>
+      <p class="hero-note"><span>Base URL</span> <code>http://localhost:8080</code> <span class="dot">/</span> JSON responses <span class="dot">/</span> no network dependencies</p>
+    </section>
+
+    <section class="doc-section" id="quickstart" aria-labelledby="quickstart-title">
+      <p class="section-kicker">01</p>
+      <h2 id="quickstart-title">Quick start</h2>
+      <p>Every route is relative to <code>BASE_URL</code>. Public reads need no credentials. Signed-in and admin routes use the browser session cookie created by the Google OAuth flow.</p>
+      <pre class="mini-code"><code>BASE_URL=http://localhost:8080
+PUBLIC_URL=http://localhost:8080
+curl -i "$BASE_URL/api/healthz"</code></pre>
+      <ul class="rule-list">
+        <li><strong>JSON API.</strong> Success bodies are JSON except the iCalendar feed and <code>204</code> responses. Errors use a single <code>{ "error": { "code", "message" } }</code> envelope.</li>
+        <li><strong>Methods.</strong> 33 method and path combinations are documented. <code>HEAD</code> is accepted on every <code>GET</code>. <code>OPTIONS</code> is only meaningful as a CORS preflight.</li>
+        <li><strong>Authentication.</strong> Google OIDC with PKCE S256, state and nonce. Scopes are <code>openid email profile</code>. There is no password login, bearer token or JWT endpoint.</li>
+        <li><strong>Not available.</strong> There is no <code>POST /api/people</code> and no refresh token.</li>
+      </ul>
+      <p class="note"><strong>Example values.</strong> <code>BASE_URL=http://localhost:8080</code> and <code>PUBLIC_URL=http://localhost:8080</code> are illustrative. A local frontend's <code>PUBLIC_URL</code> may be another localhost port and must match the actual configured value or proxy. Replace illustrative UUIDs and cookie placeholders with real values.</p>
+    </section>
+
+    <section class="doc-section" id="authentication" aria-labelledby="authentication-title">
+      <p class="section-kicker">02</p>
+      <h2 id="authentication-title">Authentication and OAuth</h2>
+      <p>Login is Google OIDC authorization-code flow with PKCE <code>S256</code>, a random <code>state</code> and a <code>nonce</code>. Requested scopes are <code>openid email profile</code>. The backend validates the Google ID token, including issuer, audience, signature, nonce and verified email, then stores only the session token hash.</p>
+      <h3>Flow</h3>
+      <ol class="steps">
+        <li>Configure a Google Web OAuth client with the exact redirect URI <code>PUBLIC_URL + /api/auth/google/callback</code> and the authorized frontend origin.</li>
+        <li>Start a top-level browser navigation to <code>window.location.assign('/api/auth/google/login?return_to=' + encodeURIComponent('/'))</code>. The login route sets the OAuth flow cookie (<code>__Host-caus_oauth</code> over HTTPS, <code>caus_oauth</code> on HTTP localhost) and redirects to Google.</li>
+        <li>Google redirects to the callback with provider-managed <code>code</code> and <code>state</code>. The callback checks the cookie and state, exchanges the code, validates identity and sets the session cookie (<code>__Host-caus_session</code> over HTTPS, <code>caus_session</code> on HTTP localhost).</li>
+        <li>Call <code>fetch('/api/me', { credentials: 'include' })</code> to read the account and role. Roles are read per request.</li>
+      </ol>
+      <h3>Identity checks</h3>
+      <ul class="rule-list">
+        <li><strong>ID token.</strong> The Google ID token must validate its issuer, audience, signature, expiry and nonce. A token that fails any of these returns <code>401 invalid_identity</code>.</li>
+        <li><strong>Verified email.</strong> The ID token email must be verified by Google.</li>
+        <li><strong>Names.</strong> A nonblank first name is required locally; the last name may be an empty string because some Google accounts have no family name, so a missing family name no longer fails sign-in. Names are copied from Google only at the first sign-in; later logins never refresh stored names. A blank or missing first name fails with <code>422 invalid_identity</code>.</li>
+        <li><strong>Email collisions.</strong> An email already bound to a different Google identity returns <code>409 identity_conflict</code>. Accounts are never merged by email silently.</li>
+      </ul>
+      <h3>Session cookies</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Cookie</th><th>Purpose</th><th>Attributes</th></tr></thead>
+        <tbody>
+          <tr><td><code>__Host-caus_oauth</code> (<code>caus_oauth</code> on HTTP localhost)</td><td>Short-lived OAuth state, nonce and PKCE verifier.</td><td><code>HttpOnly</code>, <code>SameSite=Lax</code>, no <code>Domain</code>, 10 minutes, <code>Secure</code> when the configured <code>PUBLIC_URL</code> is HTTPS. <code>Path=/</code> over HTTPS; <code>Path=/api/auth/google</code> on HTTP localhost.</td></tr>
+          <tr><td><code>__Host-caus_session</code> (<code>caus_session</code> on HTTP localhost)</td><td>Session token: 32 random bytes, base64url-encoded to a 43 character opaque string. Only its SHA256 hash is stored server-side.</td><td><code>HttpOnly</code>, <code>SameSite=Lax</code>, <code>Path=/</code>, no <code>Domain</code>, <code>Secure</code> when the configured <code>PUBLIC_URL</code> is HTTPS. Lifetime is <code>SESSION_TTL</code>, default <code>720h</code> (30 days), range <code>1s..8760h</code>. No refresh.</td></tr>
+        </tbody>
+      </table></div>
+      <p>The browser sends one session cookie only. The <code>Secure</code> attribute follows the configured <code>PUBLIC_URL</code> scheme, not the scheme of the incoming request. Over HTTPS only the <code>__Host-</code>-prefixed names are issued and read, so upgrading to HTTPS requires users to log in again. Missing, empty, duplicate, malformed or expired sessions return <code>401 unauthenticated</code>.</p>
+      <h3>Roles, origin and browser rules</h3>
+      <ul class="rule-list">
+        <li><strong>Access badges.</strong> <em>Public</em> needs nothing, <em>Signed in</em> accepts a member or admin, and <em>Admin</em> requires an admin.</li>
+        <li><strong>Admin access.</strong> Authorization reads only the stored account role: <code>role</code> must be <code>admin</code>. Any admin can grant admin to any existing account with <code>PATCH /api/admin/users/{id}</code>, including an email that is not on <code>ADMIN_EMAILS</code>. <code>ADMIN_EMAILS</code> is optional and applies only at login as a one-time bootstrap: the first login with an allowlisted, authoritative Google email (<code>@gmail.com</code> or a Workspace hosted domain) consumes a hashed-email marker and becomes admin, after which the stored role alone authorizes requests. A nonauthoritative allowlisted email signs in as a member and can be granted admin later by an existing admin. Removing an allowlist entry demotes nobody, and this bootstrap rule affects only future first promotions, not existing roles. The last remaining admin cannot be demoted and cannot delete their account; both requests answer <code>409 conflict</code>.</li>
+        <li><strong>Writes.</strong> Every <code>POST</code>, <code>PATCH</code> and <code>DELETE</code> requires an <code>Origin</code> header exactly equal to the canonical configured <code>PUBLIC_URL</code>. Otherwise the response is <code>403 origin_denied</code>.</li>
+        <li><strong>HttpOnly sessions.</strong> JavaScript cannot read the session cookie or token. Normal clients log in with top-level browser navigation. The <code>caus_session=YOUR_SESSION_COOKIE</code> placeholder in CLI examples is for manual use only.</li>
+        <li><strong>Logout.</strong> Send <code>fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })</code>. The browser sets <code>Origin</code> automatically. Never set the forbidden <code>Cookie</code> header in browser <code>fetch</code>.</li>
+        <li><strong>Separate dev frontend.</strong> Set the API origin explicitly, set <code>PUBLIC_URL</code> to the frontend origin, and proxy the <code>/api</code> callback. CORS allowance alone does not authorize a write <code>Origin</code> or defeat SameSite cookie rules; a same-origin reverse proxy is recommended.</li>
+      </ul>
+      <p class="note">The login and callback examples do not complete Google login with curl. Login is a <code>302</code> to Google. Callback <code>code</code> and <code>state</code> values are provider-managed illustrative placeholders.</p>
+    </section>
+
+    <section class="doc-section" id="conventions" aria-labelledby="conventions-title">
+      <p class="section-kicker">03</p>
+      <h2 id="conventions-title">Conventions</h2>
+      <ul class="rule-list">
+        <li><strong>Envelope.</strong> Successful reads return either a bare object, a paginated <code>{ "data": [...], "pagination": { "limit", "offset", "has_more" } }</code>, or the documented detail shape. <code>204</code> responses have no body.</li>
+        <li><strong>Pagination.</strong> <code>limit</code> is 1..100 and defaults to 20. <code>offset</code> is 0 or greater and defaults to 0. Duplicate or invalid values return <code>400 invalid_pagination</code>.</li>
+        <li><strong>Event dates.</strong> Exactly <code>YYYY-MM-DDTHH:MM:SS</code>: no <code>Z</code> suffix, no UTC offset and no fractional seconds. The value is read as a Europe/Madrid wall clock, and invalid dates or local times that do not exist in Europe/Madrid are rejected. <code>created_at</code> and <code>updated_at</code> are UTC RFC3339 timestamps.</li>
+        <li><strong>Durations.</strong> Whole seconds from 1 through 9223372036. The computed end date must be representable in years 1..9999.</li>
+        <li><strong>HEAD.</strong> Accepted on every documented <code>GET</code> with the same headers and status as the GET response. There is no separate HEAD endpoint entry.</li>
+      </ul>
+      <h3>Path parameters</h3>
+      <p><code>{id}</code> is a path parameter. Every example UUID in this reference is illustrative and must be replaced with a real id.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Parameter</th><th>Routes</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>{id}</code></td><td>All documented routes except <code>GET /api/people/{id}</code></td><td>A nonzero UUID. The zero UUID is rejected with <code>400 invalid_id</code>.</td></tr>
+          <tr><td><code>{id}</code></td><td><code>GET /api/people/{id}</code></td><td>A parsed zero UUID is accepted and follows the normal lookup path; the route returns <code>404 person_not_found</code> only when no person with that id is stored.</td></tr>
+          <tr><td><code>{id}</code></td><td><code>GET /api/admin/competitions/{id}/teams</code> and <code>POST /api/admin/competitions/{id}/teams</code></td><td>The competition id, not a team id.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="doc-section" id="models" aria-labelledby="models-title">
+      <p class="section-kicker">04</p>
+      <h2 id="models-title">Models</h2>
+      <p>Response shapes use these objects. Nullable fields are explicit; absent private fields are never serialized.</p>
+      <div id="model-list" class="card-list"></div>
+    </section>
+
+    <section class="doc-section" id="requests" aria-labelledby="requests-title">
+      <p class="section-kicker">05</p>
+      <h2 id="requests-title">Requests</h2>
+      <p>JSON request models and validation rules. Bodies are required only on the methods that document them.</p>
+      <div id="request-list" class="card-list"></div>
+      <h3>Global JSON decoding</h3>
+      <ul class="rule-list">
+        <li><code>Content-Type: application/json</code> is required; parameters are allowed. Missing or unsupported media types return <code>415 unsupported_media_type</code>.</li>
+        <li>The body is limited to 64 KiB. Larger bodies return <code>413 request_too_large</code>.</li>
+        <li>The body must be one non-null JSON object. Unknown fields, trailing extra JSON, empty bodies or the wrong structure return <code>400 invalid_body</code>.</li>
+        <li>Valid JSON with wrong types, null in a nonnullable field, or missing required fields returns <code>422 validation_failed</code> with an <code>error.fields</code> map.</li>
+        <li>An empty <code>{}</code> patch returns <code>422</code> with <code>error.fields.patch</code>.</li>
+        <li>String values are stored with surrounding whitespace removed.</li>
+        <li>Talk <code>title</code> and <code>location</code>, competition <code>name</code> and <code>location</code>, and team <code>name</code> accept at most 200 characters and answer <code>422 validation_failed</code> otherwise.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section endpoint-section" id="endpoints" aria-labelledby="endpoints-title">
+      <p class="section-kicker">06</p>
+      <h2 id="endpoints-title">Endpoints</h2>
+      <p>Search and filter the reference, or follow a deep link directly to a card. Each example uses illustrative values and is safe to copy; no request is executed here.</p>
+      <div id="endpoint-list" class="endpoint-list"></div>
+      <div id="empty-state" class="empty-state" hidden>
+        <h3>No matching endpoints</h3>
+        <p>Try a different search term, category or access level.</p>
+        <button class="button" id="empty-reset" type="button">Reset filters</button>
+      </div>
+    </section>
+
+    <section class="doc-section" id="errors" aria-labelledby="errors-title">
+      <p class="section-kicker">07</p>
+      <h2 id="errors-title">Errors</h2>
+      <p>All error responses use the same envelope. Validation errors add <code>error.fields</code>.</p>
+      <pre class="mini-code"><code>{ "error": { "code": "invalid_pagination", "message": "invalid pagination" } }
+
+{ "error": { "code": "validation_failed", "message": "validation failed",
+  "fields": { "title": "title is required" } } }</code></pre>
+      <h3>Global code table</h3>
+      <p>These codes exist globally. Every route can answer <code>500 internal_error</code>. Routes under <code>/api/auth/</code> and every request whose method is not <code>GET</code> or <code>HEAD</code> can also answer <code>429 rate_limited</code>; other <code>GET</code> and <code>HEAD</code> requests never are. Per-endpoint lists name the codes a route is known to return and are not exhaustive.</p>
+      <div id="error-table"></div>
+      <h3>OAuth and identity codes</h3>
+      <div id="oauth-table"></div>
+    </section>
+
+    <section class="doc-section" id="cors" aria-labelledby="cors-title">
+      <p class="section-kicker">08</p>
+      <h2 id="cors-title">CORS</h2>
+      <ul class="rule-list">
+        <li><strong>Allowed origins.</strong> Only the exact configured <code>PUBLIC_URL</code> origin. An HTTP localhost origin is allowed only when it is itself the configured <code>PUBLIC_URL</code>.</li>
+        <li><strong>Credentials.</strong> <code>Access-Control-Allow-Credentials: true</code>. The allowed origin is echoed; <code>Vary: Origin</code> is set.</li>
+        <li><strong>Preflight.</strong> <code>OPTIONS</code> is meaningful only as a preflight with <code>Access-Control-Request-Method</code>. Allowed request headers are <code>Accept</code> and <code>Content-Type</code> only. A valid preflight returns <code>204</code> with <code>Access-Control-Max-Age: 600</code>.</li>
+        <li><strong>Denials.</strong> A disallowed origin returns <code>403 cors_origin_denied</code>. A disallowed requested header returns <code>400 cors_headers_denied</code>.</li>
+        <li><strong>Exposed headers.</strong> <code>Retry-After</code> and <code>X-Request-ID</code>.</li>
+        <li><strong>Not a blanket method.</strong> There is no anonymous catch-all <code>OPTIONS</code> behavior; only preflight is supported.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section" id="rate-limits" aria-labelledby="rate-limits-title">
+      <p class="section-kicker">09</p>
+      <h2 id="rate-limits-title">Rate limits</h2>
+      <ul class="rule-list">
+        <li>60 requests per 60 seconds per client, in one shared bucket. The limit applies to every route under <code>/api/auth/</code> and to every request whose method is not <code>GET</code> or <code>HEAD</code>; other <code>GET</code> and <code>HEAD</code> requests are never rate limited.</li>
+        <li>IPv6 clients are counted per <code>/64</code> network and IPv4 clients per address.</li>
+        <li>Exceeding the limit returns <code>429 rate_limited</code> with <code>Retry-After</code> as integer seconds.</li>
+        <li>CORS preflight is handled before the limiter.</li>
+        <li><code>X-Forwarded-For</code> is trusted only from loopback peers, and only its rightmost token is used. Forwarded headers from non-loopback peers are ignored entirely.</li>
+        <li>The server binds <code>127.0.0.1:PORT</code>, default port <code>8080</code>.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section" id="response-headers" aria-labelledby="headers-title">
+      <p class="section-kicker">10</p>
+      <h2 id="headers-title">Response headers</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Header</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td><code>X-Request-ID</code></td><td>A UUID on every response.</td></tr>
+          <tr><td><code>Cache-Control</code></td><td><code>no-store</code>.</td></tr>
+          <tr><td><code>X-Content-Type-Options</code></td><td><code>nosniff</code>.</td></tr>
+          <tr><td><code>Referrer-Policy</code></td><td><code>no-referrer</code>.</td></tr>
+          <tr><td><code>Content-Security-Policy</code></td><td><code>default-src 'none'; frame-ancestors 'none'</code>.</td></tr>
+          <tr><td><code>Strict-Transport-Security</code></td><td><code>max-age=31536000; includeSubDomains</code>, sent only when the configured <code>PUBLIC_URL</code> is HTTPS.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="doc-section" id="configuration" aria-labelledby="configuration-title">
+      <p class="section-kicker">11</p>
+      <h2 id="configuration-title">Configuration</h2>
+      <p>Placeholders only. The backend reads environment variables directly and does not auto-load <code>.env</code>.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Variable</th><th>Required</th><th>Default</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>DATABASE_URL</code></td><td>Required</td><td>None</td><td>Postgres connection string.</td></tr>
+          <tr><td><code>PUBLIC_URL</code></td><td>Required</td><td>None</td><td>Canonical HTTPS origin, or HTTP localhost with an explicit port. Used for redirects, write Origin checks, CORS and HSTS.</td></tr>
+          <tr><td><code>GOOGLE_CLIENT_ID</code></td><td>Required</td><td>None</td><td>Google Web OAuth client id.</td></tr>
+          <tr><td><code>GOOGLE_CLIENT_SECRET</code></td><td>Required</td><td>None</td><td>Server-only Google OAuth client secret. Never expose it to browsers.</td></tr>
+          <tr><td><code>ADMIN_EMAILS</code></td><td>Optional</td><td>Empty</td><td>Comma-separated email allowlist applied only at login as a one-time bootstrap: the first login with a listed, authoritative Google email (<code>@gmail.com</code> or a Workspace hosted domain) consumes a hashed-email marker and becomes admin. Nonauthoritative emails sign in as members. Removing an entry demotes nobody. Authorization checks only the stored account role, which any admin can grant with <code>PATCH /api/admin/users/{id}</code> even for an email that is not listed here. The last remaining admin cannot be demoted and cannot delete their account; both requests answer <code>409 conflict</code>.</td></tr>
+          <tr><td><code>SESSION_TTL</code></td><td>Optional</td><td><code>720h</code></td><td>Duration from <code>1s</code> to <code>8760h</code> (30 days by default). There is no refresh.</td></tr>
+          <tr><td><code>PORT</code></td><td>Optional</td><td><code>8080</code></td><td>Integer 1..65535. The server binds <code>127.0.0.1:PORT</code>.</td></tr>
+          <tr><td><code>LOG_LEVEL</code></td><td>Optional</td><td><code>info</code></td><td><code>debug</code>, <code>info</code>, <code>warn</code> or <code>error</code>.</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note"><strong>Schema.</strong> <code>schema.sql</code> at the repository root is the schema initialization entry point. It applies the files in <code>schema/</code> in order through relative <code>\ir</code> includes.</p>
+    </section>
+
+    <footer class="footer">
+      <p>caus API reference. Static, offline and self-contained. No example in this page is executed.</p>
+      <p><a href="#top">Back to top</a></p>
+    </footer>
+  </main>
+</div>
+<script src="api-data.js"></script>
+<script src="api-data2.js"></script>
+<script src="api.js"></script>
+</body>
+</html>

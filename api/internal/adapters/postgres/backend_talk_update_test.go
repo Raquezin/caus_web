@@ -146,10 +146,9 @@ func TestEndpointTalkUpdateRejectsSpeakers(t *testing.T) {
 	attachEndpointTalkUpdateSpeakers(t, tx, talkID, original, historical)
 
 	cases := map[string][]uuid.UUID{
-		"empty":                {},
-		"unknown":              {uuid.New()},
-		"unregistered":         {unregistered},
-		"historical specified": {historical},
+		"empty":        {},
+		"unknown":      {uuid.New()},
+		"unregistered": {unregistered},
 	}
 	for name, ids := range cases {
 		requested := ids

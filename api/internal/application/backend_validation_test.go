@@ -162,3 +162,11 @@ func TestValidatePageAndFilter(t *testing.T) {
 		t.Fatal("unknown role accepted")
 	}
 }
+
+func TestValidateCompetitionInputRejectsYearZeroDate(t *testing.T) {
+	input := validCompetitionInput()
+	input.Date = time.Date(0, 6, 1, 10, 0, 0, 0, time.UTC)
+	if fields := validationFields(t, ValidateCompetitionInput(input)); fields["date"] == "" {
+		t.Fatalf("year zero date accepted: %v", fields)
+	}
+}

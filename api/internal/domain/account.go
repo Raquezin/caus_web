@@ -22,6 +22,11 @@ type Account struct {
 	UpdatedAt time.Time
 }
 
+type AccountPatch struct {
+	FirstName *string
+	LastName  *string
+}
+
 type GoogleIdentity struct {
 	Subject            string
 	Email              string

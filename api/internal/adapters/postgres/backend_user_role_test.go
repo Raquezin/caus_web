@@ -16,6 +16,7 @@ func TestEndpointUserRoleIntegration(t *testing.T) {
 	repo, tx := backendFixture(t)
 	ctx := context.Background()
 	personID := insertPersonRow(t, tx, "Ada", "Lovelace")
+	insertExportPerson(t, tx, "Alan", "Turing", "alan@example.com", "sub-alan", "admin")
 	if _, err := tx.Exec(ctx,
 		"UPDATE people SET email = $2, google_sub = $3 WHERE id = $1",
 		personID, "ada@example.com", "google-subject"); err != nil {
@@ -65,7 +66,7 @@ func TestEndpointUserRoleIntegration(t *testing.T) {
 func TestEndpointUserRoleLeavesOtherPeopleUntouched(t *testing.T) {
 	repo, tx := backendFixture(t)
 	ctx := context.Background()
-	targetID := insertPersonRow(t, tx, "Ada", "Lovelace")
+	targetID := insertExportPerson(t, tx, "Ada", "Lovelace", "ada@example.com", "sub-ada", "member")
 	otherID := insertPersonRow(t, tx, "Grace", "Hopper")
 	if _, err := repo.UpdateUserRole(ctx, targetID, "admin"); err != nil {
 		t.Fatal(err)

@@ -60,8 +60,8 @@ func TestGoogleCallbackOIDCPostgresE2E(t *testing.T) {
 		t.Fatal("returning subject did not get a fresh session")
 	}
 	account, err = f.Auth.CurrentUser(context.Background(), second.Raw)
-	if err != nil || account.ID != id || account.Email != "new@example.com" || account.FirstName != "Augusta" {
-		t.Fatal("subject reuse failed to update the verified profile in place")
+	if err != nil || account.ID != id || account.Email != "new@example.com" || account.FirstName != "Ada" {
+		t.Fatal("subject reuse failed to keep the stored profile and update the email in place")
 	}
 	if people, sessions := f.counts(t); people != 1 || sessions != 2 {
 		t.Fatal("returning subject duplicated person or lost session")
@@ -97,7 +97,7 @@ func TestGoogleCallbackLinkingAndRolesE2E(t *testing.T) {
 		status   int
 	}{
 		{name: "unlinked email", role: "member", status: 409},
-		{name: "unlinked admin", role: "admin", status: 409},
+		{name: "linked admin", subject: "admin-subject", role: "admin", status: 409},
 		{name: "unlinked admin email", role: "member", admins: []string{"ada@example.com"}, status: 409},
 		{name: "bootstrap promotion", subject: "verified-subject", role: "member", admins: []string{" ADA@EXAMPLE.COM "},
 			claims: authTestClaims{Values: map[string]any{"hd": "example.com"}}, wantRole: "admin", status: 302},
@@ -115,7 +115,7 @@ func TestGoogleCallbackLinkingAndRolesE2E(t *testing.T) {
 			}
 			result := f.Login(t, tc.claims)
 			if tc.status == 409 {
-				assertAuthError(t, result.Response, 409, "identity_conflict")
+				assertSignInRedirect(t, result.Response, result.Pending.Flow.ReturnTo, "identity_conflict")
 				var first, last, email, role string
 				var subject *string
 				if err := f.Tx.QueryRow(context.Background(),
@@ -134,7 +134,7 @@ func TestGoogleCallbackLinkingAndRolesE2E(t *testing.T) {
 				return
 			}
 			account, err := f.Auth.CurrentUser(context.Background(), result.Raw)
-			if err != nil || result.Response.StatusCode != tc.status || account.ID != id || account.Role != tc.wantRole || account.FirstName != "Ada" {
+			if err != nil || result.Response.StatusCode != tc.status || account.ID != id || account.Role != tc.wantRole || account.FirstName != "Original" {
 				t.Fatal("verified linking or role preservation failed")
 			}
 		})

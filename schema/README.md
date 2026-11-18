@@ -11,9 +11,11 @@ elections, chronicles) stays as Markdown in Git and is not part of this schema.
 ## People
 
 - Members, speakers and competitors.
-- First and last name are required. Names can be corrected by the person even if they come from Google.
+- First name is required; last name may be empty because some Google accounts have no family name. Names are copied from Google only at the first sign-in; afterwards only the person changes them.
 - Email is optional: deleting an account clears it, but the row stays so talks and results keep their history.
 - Roles: `member` (default) and `admin`.
+- Only a person with a linked Google account can be `admin`; deleting an account resets the role to `member`.
+- `updated_at` on people changes only when the row actually changes; a sign-in that changes nothing leaves it alone.
 
 ## Auth
 

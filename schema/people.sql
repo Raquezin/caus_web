@@ -11,12 +11,14 @@ create table people (
   updated_at timestamptz not null default now(),
 
   constraint people_first_name_not_blank check (trim(first_name) <> ''),
-  constraint people_last_name_not_blank check (trim(last_name) <> ''),
   constraint people_email_canonical check (is_canonical_email(email)),
   constraint people_google_sub_not_blank check (trim(google_sub) <> ''),
-  constraint people_google_sub_requires_email check (google_sub is null or email is not null)
+  constraint people_google_sub_requires_email check (google_sub is null or email is not null),
+  constraint people_admin_requires_google_sub check (role = 'member' or google_sub is not null)
 );
 
 create trigger people_set_updated_at
   before update on people
-  for each row execute function set_updated_at();
+  for each row
+  when (old.* is distinct from new.*)
+  execute function set_updated_at();

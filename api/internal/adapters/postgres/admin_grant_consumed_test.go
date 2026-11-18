@@ -22,6 +22,7 @@ func TestAdminGrantConsumedByDeleteIntegration(t *testing.T) {
 	if err != nil || original.Role != "admin" {
 		t.Fatalf("bootstrap login: %v role %q", err, original.Role)
 	}
+	insertExportPerson(t, tx, "Second", "Admin", "second@example.com", "second-sub", "admin")
 	if err := repo.DeleteAccount(ctx, original.ID); err != nil {
 		t.Fatalf("delete account: %v", err)
 	}
@@ -48,6 +49,7 @@ func TestAdminGrantConsumedSameSubjectRejoinIntegration(t *testing.T) {
 	if err != nil || original.Role != "admin" {
 		t.Fatalf("bootstrap login: %v role %q", err, original.Role)
 	}
+	insertExportPerson(t, tx, "Second", "Admin", "second@example.com", "second-sub", "admin")
 	if err := repo.DeleteAccount(ctx, original.ID); err != nil {
 		t.Fatalf("delete account: %v", err)
 	}

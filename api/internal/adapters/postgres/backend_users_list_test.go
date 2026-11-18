@@ -13,10 +13,15 @@ import (
 
 func insertUsersListPerson(t *testing.T, tx pgx.Tx, first, last string, email *string, role string) uuid.UUID {
 	t.Helper()
+	var subject *string
+	if role == "admin" {
+		seed := "sub-" + first
+		subject = &seed
+	}
 	var id uuid.UUID
 	err := tx.QueryRow(context.Background(),
-		"INSERT INTO people (first_name, last_name, email, role) VALUES ($1, $2, $3, $4) RETURNING id",
-		first, last, email, role).Scan(&id)
+		"INSERT INTO people (first_name, last_name, email, google_sub, role) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+		first, last, email, subject, role).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}

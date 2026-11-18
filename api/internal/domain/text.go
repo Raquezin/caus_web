@@ -1,9 +1,12 @@
 package domain
 
-import "unicode/utf8"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 func ValidText(value string) bool {
-	if !utf8.ValidString(value) {
+	if !utf8.ValidString(value) || strings.ContainsRune(value, '\uFEFF') {
 		return false
 	}
 	for index := 0; index < len(value); index++ {

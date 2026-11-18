@@ -40,7 +40,7 @@ func TestEndpointTalkGetRepositoryIntegration(t *testing.T) {
 
 	adminSpeakerID := insertPersonRow(t, tx, "Grace", "Hopper")
 	if _, err := tx.Exec(ctx,
-		"UPDATE people SET email = 'grace@example.com', role = 'admin' WHERE id = $1", adminSpeakerID); err != nil {
+		"UPDATE people SET email = 'grace@example.com', google_sub = 'sub-grace', role = 'admin' WHERE id = $1", adminSpeakerID); err != nil {
 		t.Fatal(err)
 	}
 	hiddenID := insertTalkRow(t, tx, false)
