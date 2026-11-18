@@ -82,7 +82,7 @@ func newAuthE2EFixture(t *testing.T, adminEmails ...string) *authE2EFixture {
 	provider := google.New(ctx, f.OIDC.Server.URL, "test-client", "test-secret", publicURL+"/api/auth/google/callback")
 	log := slog.New(slog.NewJSONHandler(f.Logs, nil))
 	auth := NewAuth(provider, f.Auth, AuthConfig{PublicURL: publicURL, SessionTTL: f.TTL}, log)
-	f.Server.Config.Handler = NewRouter(application.NewPeople(postgres.NewPeopleRepository(tx)), pool.Ping, log, auth)
+	f.Server.Config.Handler = NewRouterWithBackend(application.NewPeople(postgres.NewPeopleRepository(tx)), pool.Ping, log, auth, NewBackend(nil, auth, log))
 	f.Server.Start()
 	f.Server.URL = publicURL
 	jar, err := cookiejar.New(nil)
